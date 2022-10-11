@@ -11,7 +11,7 @@ class CreateEntryDialog(QDialog):
 
         # Form Content
         self.character_selector = QComboBox()
-        self.character_selector.addItems(self.engine.get_characters())
+        self.character_selector.addItems(self.engine.get_characters().keys())
         self.character_selector.currentTextChanged.connect(self.character_changed)
         self.category_selector = QComboBox()
         self.categories = dict()

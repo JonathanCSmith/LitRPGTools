@@ -1,12 +1,13 @@
 from collections import OrderedDict
 from functools import partial
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPalette, QColor, QAction
 from PyQt6.QtWidgets import QMainWindow, QListWidget, QAbstractItemView, QPushButton, QVBoxLayout, QWidget, QTabWidget, QFormLayout, QMenu, QHBoxLayout, QLineEdit, QLabel, QCheckBox, QScrollArea
 
 from data.entries import Entry
-from gui.category_dialogs import CategoryDialog, EditCategoryDialog
+from gui.category_dialogs import CategoryDialog, EditCategoryDialog, CategoryAssignmentDialog
 from gui.character_dialogs import CharacterDialog, CharacterSelectDialog
 from gui.common_widgets import VisibleDynamicSplitPanel
 from gui.entry_dialogs import CreateEntryDialog
@@ -14,9 +15,12 @@ from gui.gui_utils import handle_update_later_entries, create_edit_dialog, creat
 from gui.sheets_dialogs import TagDialog
 from gui.spell_check_plain_text import SpellTextEdit
 
+if TYPE_CHECKING:
+    from main import LitRPGTools
+
 
 class SelectedView(QWidget):
-    def __init__(self, engine, parent):
+    def __init__(self, engine: 'LitRPGTools', parent):
         super(SelectedView, self).__init__()
         self.engine = engine
         self.parent = parent
@@ -195,7 +199,7 @@ class SelectedView(QWidget):
 
 
 class CategoryView(QWidget):
-    def __init__(self, engine, root_gui, parent, category):
+    def __init__(self, engine: 'LitRPGTools', root_gui, parent, category):
         super().__init__()
         self.engine = engine
         self.root_gui = root_gui
@@ -306,7 +310,7 @@ class CategoryView(QWidget):
 
 
 class CharacterView(QTabWidget):
-    def __init__(self, engine, root_gui, character):
+    def __init__(self, engine: 'LitRPGTools', root_gui, character):
         super(CharacterView, self).__init__()
         self.engine = engine
         self.root_gui = root_gui
@@ -392,14 +396,17 @@ class CharacterView(QTabWidget):
             current_tab.handle_update(currently_selected, current_history_index)
 
         # Update our tab bar
-        categories = self.engine.get_categories()
+        # categories = self.engine.get_categories()
+        categories = self.engine.get_character_categories(self.character)
         num_categories = len(categories)
         count = 0
-        for category in categories.keys():
+        for category in categories:
             current_name = self.category_tab_view.tabText(count)
             if category != current_name:
                 self.category_tab_view.insertTab(count, CategoryView(self.engine, self.root_gui, self, category), category)
             count += 1
+
+        # Remove extra tabs - anything shifted to the right of our expected maximum are no longer needed
         for i in range(self.category_tab_view.count(), num_categories, -1):
             tab_to_delete = self.category_tab_view.widget(i - 1)
             self.category_tab_view.blockSignals(True)
@@ -410,7 +417,7 @@ class CharacterView(QTabWidget):
 
 
 class MainGUI(QMainWindow):
-    def __init__(self, main, app):
+    def __init__(self, main: 'LitRPGTools', app):
         super().__init__()
         self.engine = main
         self.app = app
@@ -460,10 +467,10 @@ class MainGUI(QMainWindow):
         self.dump_menu_action.triggered.connect(self.engine.dump)
 
         # Characters Menu
-        self.characters_menu = self.menu_bar.addMenu("&Characters")
-        self.add_character_action = self.characters_menu.addAction("Add Character")
-        self.add_character_action.triggered.connect(self.add_character)
-        self.delete_character_menu = self.characters_menu.addMenu("Delete Character")
+        # self.characters_menu = self.menu_bar.addMenu("&Characters")
+        # self.add_character_action = self.characters_menu.addAction("Add Character")
+        # self.add_character_action.triggered.connect(self.add_character)
+        # self.delete_character_menu = self.characters_menu.addMenu("Delete Character")
 
         # Categories Menu
         self.categories_menu = self.menu_bar.addMenu("&Categories")
@@ -485,14 +492,17 @@ class MainGUI(QMainWindow):
         self.history_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
         self.history_list.itemSelectionChanged.connect(self.selection_changed)
+        self.create_character_button = QPushButton("Create Character")
+        self.create_character_button.clicked.connect(self.create_character)
+        self.edit_character_category_button = QPushButton("Edit Character Categories")
+        self.edit_character_category_button.clicked.connect(self.edit_character_categories)
         self.create_entry_button = QPushButton("Create Entry Below Highlighted")
         self.create_entry_button.clicked.connect(self.create_entry)
-        # self.update_entry_button = QPushButton("Update Selected Entry")
-        # self.update_entry_button.clicked.connect(self.update_entry)
         self.sidebar_layout = QVBoxLayout()
         self.sidebar_layout.addWidget(self.history_list)
+        self.sidebar_layout.addWidget(self.create_character_button)
+        self.sidebar_layout.addWidget(self.edit_character_category_button)
         self.sidebar_layout.addWidget(self.create_entry_button)
-        # self.sidebar_layout.addWidget(self.update_entry_button)
         self.sidebar = QWidget()
         self.sidebar.setLayout(self.sidebar_layout)
 
@@ -511,8 +521,6 @@ class MainGUI(QMainWindow):
         self.dulicate_item_no_parents.triggered.connect(self.duplicate_not_child)
         self.dulicate_item_parents = QAction("&Duplicate (As Child)")
         self.dulicate_item_parents.triggered.connect(self.duplicate_to_child)
-        # self.update_selected_action = QAction("&Update selected entry and place at current index in history.")
-        # self.update_selected_action.triggered.connect(self.update_entry)
         self.history_list.addActions([self.set_current_in_history_action, self.delete_in_history_action, self.label_item_in_history_action, self.move_item_up_action, self.move_item_down_action, self.dulicate_item_parents, self.dulicate_item_no_parents])
 
         # Parent group tab widget
@@ -552,7 +560,7 @@ class MainGUI(QMainWindow):
         self.handle_update()
         self.selection_changed()
 
-    def add_character(self):
+    def create_character(self):
         dialog = CharacterDialog(self.engine)
         dialog.exec()
         if dialog.viable:
@@ -625,6 +633,19 @@ class MainGUI(QMainWindow):
 
         # Update our GUI
         self.handle_update()
+
+    def edit_character_categories(self):
+        category_assignment_dialog = CategoryAssignmentDialog(self.engine)
+        category_assignment_dialog.exec()
+        if category_assignment_dialog.viable:
+            character_data = category_assignment_dialog.get_character()
+            category_data = category_assignment_dialog.get_data()
+            if not character_data or not category_data:
+                return
+            self.engine.assign_categories_to_character(character_data, category_data)
+
+            # Update our GUI
+            self.handle_update()
 
     def toggle_display_hidden(self):
         self.handle_update()
@@ -799,12 +820,12 @@ class MainGUI(QMainWindow):
 
     def handle_update_menus(self, currently_selected, current_history_index):
         characters = self.engine.get_characters()
-        self.delete_character_menu.clear()
-        self.delete_character_actions.clear()
-        for character in characters:
-            action = self.delete_character_menu.addAction(character)
-            action.triggered.connect(partial(self.delete_character, character))
-            self.delete_character_actions[character] = action
+        # self.delete_character_menu.clear()
+        # self.delete_character_actions.clear()
+        # for character in characters.keys():
+        #     action = self.delete_character_menu.addAction(character)
+        #     action.triggered.connect(partial(self.delete_character, character))
+        #     self.delete_character_actions[character] = action
 
         categories = self.engine.get_categories()
         self.edit_category_menu.clear()
@@ -863,6 +884,7 @@ class MainGUI(QMainWindow):
 
     def handle_update_current_view(self, currently_selected, current_history_index):
         # Update our existing tab
+        # TODO: This may mean that the tab is deleted by the below operations?? Race condition??
         current_tab = self.character_tab_view.currentWidget()
         if current_tab is not None:
             current_tab.handle_update(currently_selected, current_history_index)
@@ -870,11 +892,15 @@ class MainGUI(QMainWindow):
         # Update our tab bar
         characters = self.engine.get_characters()
         num_characters = len(characters)
+
+        # Add if missing
         for i in range(num_characters):
-            character = characters[i]
+            character = characters.keys()[i]
             current_name = self.character_tab_view.tabText(i + 1)
             if character != current_name:
                 self.character_tab_view.insertTab(i + 1, CharacterView(self.engine, self, character), character)
+
+        # Delete extraneous tabs, any wrong ones would have been shifted outside the desired range
         for i in range(self.character_tab_view.count() - 1, num_characters, -1):
             tab_to_delete = self.character_tab_view.widget(i - 1)
             self.character_tab_view.blockSignals(True)

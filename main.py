@@ -1,16 +1,18 @@
 import json
 import sys
 from collections import OrderedDict
+from typing import Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QFileDialog, QProgressDialog
+from indexed import IndexedOrderedDict
 
 from data.categories import Category
 from data.data_holder import SerializationData
 from data.entries import Entry
 from data.tags import Tag
 from gui.core_gui import MainGUI
-from utils.data import DataHolder, convert_to_dict, dict_to_obj
+from new_gui.gui import LitRPGGui
 from utils.gsheets import build_gsheets_communicator, SystemSheetLayoutHandler, HistorySheetLayoutHandler
 
 
@@ -20,18 +22,16 @@ class LitRPGTools:
         self.gui = None
 
         # Data holders
-        self.characters = list()
-        self.categories = OrderedDict()
-
-        # Data holders
         self.__history_index = -1
         self.history = list()
         self.entries = dict()
+        self.characters = IndexedOrderedDict()
+        self.categories = OrderedDict()
         self.gsheets_credentials_path = None
         self.tags = dict()
 
         # Caches
-        self.latest_entry_keys_cache = dict()  # Character -> Category -> List of latest entries.
+        self.entries_for_character_category = dict()  # Character -> Category -> List of latest entries.
         self.entry_revisions = dict()  # Absolute Parent -> Ordered List of Children for Entities
         self.child_to_parent_map = dict()  # Child -> Parent Cache for Entries
 
@@ -45,25 +45,42 @@ class LitRPGTools:
 
     def start(self):
         self.gui = MainGUI(self, self.app)
+        # self.gui = LitRPGGui(self)
 
     def run(self):
         self.gui.show()
         sys.exit(self.app.exec())
 
     def add_character(self, nickname):
-        self.characters.append(nickname)
+        self.characters[nickname] = list()
 
-    def get_character(self, index):
-        return self.characters[index]
+    def get_character_by_index(self, index):
+        return self.characters[self.characters.keys()[index]]
+
+    def get_character_categories(self, name: str) -> list:
+        return self.characters[name]
 
     def get_characters(self):
         return self.characters
 
+    def assign_categories_to_character(self, character: str, categories: list) -> None:
+        self.characters[character] = categories
+
     def delete_character(self, character):
-        self.characters.remove(character)
+        del self.characters[character]
+
+        # Maintain cache coherence
+        if character in self.entries_for_character_category:
+            character_categories = self.entries_for_character_category[character]
+            for category in character_categories:
+                entries = character_categories[category]
+                for entry in entries:
+                    index = self.history.index(entry)
+                    self.delete_entry_at_index(index)
+            del self.entries_for_character_category[character]
 
     def delete_character_by_index(self, index):
-        del self.characters[index]
+        del self.characters[self.characters.keys()[index]]
 
     def get_category(self, category_name: str) -> Category:
         return self.categories[category_name]
@@ -108,24 +125,23 @@ class LitRPGTools:
             del self.categories[category_name]
 
             # Delete to maintain cache coherence
-            for categories_per_character in self.latest_entry_keys_cache.values():
-                for categories_cache in categories_per_character:
-                    if category_name in categories_cache:
-                        entries = categories_cache[category_name]
-                        for entry in entries:
-                            index = self.history.index(entry)
-                            self.delete_entry_at_index(index)
+            for categories_per_character in self.entries_for_character_category.values():
+                if category_name in categories_per_character:
+                    entries = categories_per_character[category_name]
+                    for entry in entries:
+                        index = self.history.index(entry)
+                        self.delete_entry_at_index(index)
 
-                        del categories_cache[category_name]
+                    del categories_per_character[category_name]
 
     def get_category_state_for_entity(self, category: str, entity):
         if isinstance(entity, str):
-            entity = self.characters.index(entity)
+            entity = self.characters.keys().index(entity)
 
-        if entity not in self.latest_entry_keys_cache or category not in self.latest_entry_keys_cache[entity]:
+        if entity not in self.entries_for_character_category or category not in self.entries_for_character_category[entity]:
             return None
 
-        return self.latest_entry_keys_cache[entity][category]
+        return self.entries_for_character_category[entity][category]
 
     def get_category_state_for_entity_at_time(self, category: str, entity: int, time: int):
         if time == self.get_history_index():
@@ -144,7 +160,7 @@ class LitRPGTools:
         unique_key = self.history[self.__history_index]
         return self.entries[unique_key]
 
-    def get_entry_by_index(self, index) -> Entry:
+    def get_entry_by_index(self, index) -> Optional[Entry]:
         try:
             unique_key = self.history[index]
         except IndexError:
@@ -190,7 +206,7 @@ class LitRPGTools:
         unique_id = self.history.pop(index)
         del self.entries[unique_id]
 
-        # Handle linkage deletion
+        # Handle linkage deletion (i.e. when a link in the entry history log is removed)
         parent_key = None
         if unique_id in self.child_to_parent_map:
             parent_key = self.child_to_parent_map.pop(unique_id)
@@ -284,6 +300,7 @@ class LitRPGTools:
         if len(self.history) == 0:
             return
 
+        # Loop through our entries and initialise our entry history trackers as well as build the dynamic data cache
         for i in range(self.get_history_index() + 1):
             unique_key = self.history[i]
 
@@ -294,23 +311,15 @@ class LitRPGTools:
             else:
                 self.entry_revisions[parent_key].append(unique_key)
 
-        # Re-init last entries
-        # for category in self.categories.keys():
-        #     self.latest_entries_for_category[category] = list()
-
         # Rebuild our category pointers
-        self.latest_entry_keys_cache.clear()
+        self.entries_for_character_category.clear()
         for root_key in self.entry_revisions.keys():
             root_entry = self.get_entry(root_key)
-            if root_entry.character not in self.latest_entry_keys_cache:
-                self.latest_entry_keys_cache[root_entry.character] = dict()
-            if root_entry.category not in self.latest_entry_keys_cache[root_entry.character]:
-                self.latest_entry_keys_cache[root_entry.character][root_entry.category] = []
-            self.latest_entry_keys_cache[root_entry.character][root_entry.category].append(self.entry_revisions[root_key][-1])
-
-            # item_key = self.entry_revisions[root_key][-1]
-            # entry = self.get_entry(item_key)
-            # self.latest_entries_for_category[entry.get_category()].append(entry)
+            if root_entry.character not in self.entries_for_character_category:
+                self.entries_for_character_category[root_entry.character] = dict()
+            if root_entry.category not in self.entries_for_character_category[root_entry.character]:
+                self.entries_for_character_category[root_entry.character][root_entry.category] = []
+            self.entries_for_character_category[root_entry.character][root_entry.category].append(self.entry_revisions[root_key][-1])
 
     def get_history(self):
         return self.history
@@ -330,7 +339,7 @@ class LitRPGTools:
     def add_tag(self, entry_key, tag_name, tag_target):
         self.tags[entry_key] = Tag(tag_name, entry_key, tag_target)
 
-    def get_tag(self, entry_key) -> Tag:
+    def get_tag(self, entry_key) -> Optional[Tag]:
         if entry_key in self.tags:
             return self.tags[entry_key]
         return None
@@ -357,25 +366,11 @@ class LitRPGTools:
         indices = {v: i for i, v in enumerate(self.history)}
         entries = dict(sorted(self.entries.items(), key=lambda pair: indices[pair[0]]))
 
-        old = False
-        if old:
-            save_data = DataHolder()
-            save_data.add_to_dict("categories", self.categories)
-            save_data.add_to_dict("history", self.history)
-            save_data.add_to_dict("history_index", self.__history_index)
-            save_data.add_to_dict("entries", entries)
-            save_data.add_to_dict("gsheets_credentials", self.gsheets_credentials_path)
-            save_data.add_to_dict("tags", self.tags)
-
-            # Serialise
-            jsons = json.dumps(save_data, default=convert_to_dict, indent=4)
-            with open(self.session_path, "w") as json_file:
-                json_file.write(jsons)
-        else:
-            data_holder = SerializationData(self.gsheets_credentials_path, self.tags, self.characters, self.categories, self.history, self.__history_index, entries)
-            jsons = json.dumps(data_holder, default=lambda o: o.__dict__, indent=4)
-            with open(self.session_path, "w") as json_file:
-                json_file.write(jsons)
+        # Save
+        data_holder = SerializationData(self.gsheets_credentials_path, self.tags, self.characters, self.categories, self.history, self.__history_index, entries)
+        jsons = json.dumps(data_holder, default=lambda o: o.__dict__, indent=4)
+        with open(self.session_path, "w") as json_file:
+            json_file.write(jsons)
 
     def load(self):
         file = QFileDialog.getOpenFileName(self.gui, 'OpenFile', filter="*.litrpg")
@@ -383,33 +378,20 @@ class LitRPGTools:
             return
         self.session_path = file[0]
 
-        # Try loading our new method
-        try:
-            with open(self.session_path, "r") as json_file:
-                data = json.load(json_file)
-                if "__class__" in data:
-                    raise KeyError
+        # Load
+        with open(self.session_path, "r") as json_file:
+            data = json.load(json_file)
+            if "__class__" in data:
+                raise KeyError
 
-                data_holder = SerializationData.from_json(data)
-                self.characters = data_holder.characters
-                self.categories = data_holder.categories
-                self.history = data_holder.history
-                self.entries = data_holder.entries
-                self.gsheets_credentials_path = data_holder.credentials
-                self.tags = data_holder.tags
-                history_index = data_holder.history_index
-
-        # Load with the old method
-        except KeyError:
-            with open(file[0], "r") as json_file:
-                data = json.load(json_file, object_hook=dict_to_obj)
-
-            self.categories = data.data["categories"]
-            self.history = data.data["history"]
-            self.entries = data.data["entries"]
-            self.gsheets_credentials_path = data.data["gsheets_credentials"]
-            self.tags = data.data["tags"]
-            history_index = data.data["history_index"]
+            data_holder = SerializationData.from_json(data)
+            self.characters = data_holder.characters
+            self.categories = data_holder.categories
+            self.history = data_holder.history
+            self.entries = data_holder.entries
+            self.gsheets_credentials_path = data_holder.credentials
+            self.tags = data_holder.tags
+            history_index = data_holder.history_index
 
         # Rebuild parent entries
         self.child_to_parent_map = dict()
@@ -455,7 +437,7 @@ class LitRPGTools:
             return self.gsheets_connector.spreadsheet_titles()
 
     def dump(self):
-        # Save before hand as the api has a way of randomly erroring
+        # Save beforehand as the api has a way of randomly erroring
         self.save()
 
         # Rough prediction for user inform (worst case)
@@ -476,8 +458,6 @@ class LitRPGTools:
         cache = dict()
         for tag in self.tags.values():
             output_target = tag.get_tag_target()
-
-            # TODO: Try and do a try catch here for bad gsheets connection
 
             if output_target is None or output_target == "" or output_target == "NONE":
                 current_count += len(self.categories)
@@ -563,24 +543,6 @@ class LitRPGTools:
         self.save()
         progress_bar.close()
 
-"""
-File:
-    Add Section
-        - Set name
-            - What rows
-
-    Edit Section
-        - Choose Which
-            - Display old & allow +new -old |rename
-    
-Add Item (Which Section & Where)
-Edit Item (Right click on list -> edit)?
-Save
-Load
-
-Thoughts:
-    Tab per section. On select, display all + give edit button?
-"""
 
 if __name__ == '__main__':
     # Core
@@ -591,3 +553,4 @@ if __name__ == '__main__':
 
     # Run the console interaction
     main.run()
+

@@ -1,11 +1,15 @@
 from functools import partial
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QHeaderView, QMenu, QCheckBox
+from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QHeaderView, QMenu, QCheckBox, QComboBox
 from PyQt6.uic.properties import QtGui
 
 from data.categories import CategoryProperty, Category
+
+if TYPE_CHECKING:
+    from main import LitRPGTools
 
 
 def add_check_box_at(category_properties_table, index, state=False):
@@ -308,3 +312,68 @@ class EditCategoryDialog(QDialog):
             if item:
                 self.category_properties_table.setItem(row + 1, column, item)
         self.category_properties_table.removeRow(row)
+
+
+class CategoryAssignmentDialog(QDialog):
+    def __init__(self, engine: 'LitRPGTools'):
+        super(CategoryAssignmentDialog, self).__init__()
+        self.engine = engine
+
+        # Form content
+        self.character_selector = QComboBox()
+        self.character_selector.addItems(self.engine.get_characters().keys())
+        self.character_selector.currentTextChanged.connect(self.character_changed)
+        self.done_button = QPushButton("Done")
+        self.done_button.clicked.connect(self.handle_done)
+
+        # Form layout
+        self.form_layout = QFormLayout()
+        self.form_layout.addRow("Character:", self.character_selector)
+        self.setLayout(self.form_layout)
+        self.setMinimumWidth(640)
+
+        self.data = dict()
+        self.character_changed()
+        self.viable = False
+
+    def character_changed(self):
+        all_categories = self.engine.get_categories()
+        if len(all_categories) == 0:
+            return
+
+        # Get the currently enabled categories
+        currently_enabled = self.engine.get_character_categories(self.character_selector.currentText())
+
+        # Delete the form layout contents up to a point - these are updated on the fly so have to use 1 as a hard index
+        for row_index in range(1, self.form_layout.rowCount()):
+            self.form_layout.removeRow(1)
+        self.data = dict()
+
+        # Build the contents
+        for category in all_categories:
+            box = QCheckBox()
+            box.setChecked(category in currently_enabled)
+            self.data[category] = box
+            self.form_layout.addRow(category, box)
+
+        # Add the done button
+        self.done_button = QPushButton("Done")
+        self.done_button.clicked.connect(self.handle_done)
+        self.form_layout.addRow("Done?", self.done_button)
+
+    def handle_done(self, *args):
+        self.viable = True
+        self.close()
+
+    def get_character(self):
+        return self.character_selector.currentText()
+
+    def get_data(self):
+        out = list()
+
+        for category, box in self.data.items():
+            if box.isChecked():
+                out.append(category)
+
+        return out
+

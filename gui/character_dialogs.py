@@ -8,7 +8,7 @@ class CharacterSelectDialog(QDialog):
 
         # Form Content
         self.character_selector = QComboBox()
-        self.character_selector.addItems(self.engine.get_characters())
+        self.character_selector.addItems(self.engine.get_characters().keys())
         self.done_button = QPushButton("Done")
         self.done_button.clicked.connect(self.handle_done)
 

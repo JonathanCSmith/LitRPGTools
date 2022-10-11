@@ -2,3 +2,4 @@ pyqt6~=6.2.0
 uuid~=1.30
 pygsheets~=2.0.5
 pyenchant~=3.2.2
+indexed~=1.2.1
