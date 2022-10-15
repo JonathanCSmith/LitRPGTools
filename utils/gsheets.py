@@ -48,7 +48,7 @@ class SystemSheetLayoutHandler:
     def write_category_data(self, engine, category, category_data):
         for entry_key in category_data:
             entry = engine.get_entry(entry_key)
-            if not entry.get_print_to_output():
+            if not entry.get_print_to_overview():
                 continue
 
             items = entry.get_values()
@@ -252,7 +252,7 @@ class HistorySheetLayoutHandler(SystemSheetLayoutHandler):
             category = categorites[entry.get_category()]
 
             # Do not output notes only items or items that should no longer be seen by the 'user'
-            if category.notes_only or not entry.print_to_output or not entry.print_to_history:
+            if not category.print_to_history or not entry.print_to_history:
                 continue
 
             # Basic writable values

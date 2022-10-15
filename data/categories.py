@@ -15,15 +15,15 @@ class CategoryProperty:
 
 
 class Category:
-    def __init__(self, name, properties, new_history_entry, update_history_entry, print_to_overview=False, can_change_over_time=True, is_singleton=False, notes_only=False):
+    def __init__(self, name, properties, new_history_entry, update_history_entry, print_to_overview=False, can_change_over_time=True, is_singleton=False, print_to_history=False):
         self.name = name
         self.properties = properties
         self.new_history_entry = new_history_entry
         self.update_history_entry = update_history_entry
         self.print_to_overview = print_to_overview
+        self.print_to_history = print_to_history
         self.can_change_over_time = can_change_over_time
         self.is_singleton = is_singleton
-        self.notes_only = notes_only
 
     def get_name(self):
         return self.name
@@ -43,11 +43,4 @@ class Category:
     @classmethod
     def from_json(cls, data):
         properties = list(map(CategoryProperty.from_json, data["properties"]))
-
-        # Handle new values
-        if "notes_only" in data:
-            notes_only = data["notes_only"]
-        else:
-            notes_only = False
-
-        return cls(data["name"], properties, data["new_history_entry"], data["update_history_entry"], data["print_to_overview"], data["can_change_over_time"], data["is_singleton"], notes_only)
+        return cls(data["name"], properties, data["new_history_entry"], data["update_history_entry"], data["print_to_overview"], data["can_change_over_time"], data["is_singleton"], data["print_to_history"])

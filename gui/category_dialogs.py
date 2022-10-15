@@ -46,7 +46,7 @@ class CategoryDialog(QDialog):
         self.print_to_overview_button = QCheckBox()
         self.can_change_over_time = QCheckBox()
         self.is_singleton = QCheckBox()
-        self.notes_only = QCheckBox()
+        self.print_to_history = QCheckBox()
         self.done_button = QPushButton("Done")
         self.done_button.clicked.connect(self.handle_done)
 
@@ -95,10 +95,10 @@ class CategoryDialog(QDialog):
         self.layout.addRow("", QLabel("For the next section, please input your 'display' string for each situation. Use {0} to insert entry data from the 1st row (row headers are correct)."))
         self.layout.addRow("New Entry History Summary:", self.history_entry)
         self.layout.addRow("Update Entry History Summary:", self.update_history_entry)
-        self.layout.addRow("Print Category to Overview?", self.print_to_overview_button)
+        self.layout.addRow("Category displayed in Overview?", self.print_to_overview_button)
+        self.layout.addRow("Category displayed in History?", self.print_to_history)
         self.layout.addRow("Can entries change over time?", self.can_change_over_time)
         self.layout.addRow("Is Singleton?", self.is_singleton)
-        self.layout.addRow("Notes Only (No Output to Sheets)?", self.notes_only)
         self.layout.addRow("", self.done_button)
         self.setLayout(self.layout)
         self.setMinimumWidth(640)
@@ -140,7 +140,7 @@ class CategoryDialog(QDialog):
         if len(properties) == 0:
             return None
 
-        return Category(self.category_name.text(), properties, self.history_entry.text(), self.update_history_entry.text(), self.print_to_overview_button.isChecked(), self.can_change_over_time.isChecked(), self.is_singleton.isChecked(), self.notes_only.isChecked())
+        return Category(self.category_name.text(), properties, self.history_entry.text(), self.update_history_entry.text(), self.print_to_overview_button.isChecked(), self.can_change_over_time.isChecked(), self.is_singleton.isChecked(), self.print_to_history.isChecked())
 
     def handle_done(self, *args):
         self.viable = True
@@ -173,8 +173,8 @@ class EditCategoryDialog(QDialog):
         self.print_to_overview_button.setChecked(category.get_print_to_overview())
         self.can_change_over_time = QCheckBox()
         self.can_change_over_time.setChecked(category.can_change_over_time)
-        self.notes_only = QCheckBox()
-        self.notes_only.setChecked(category.notes_only)
+        self.print_to_history_button = QCheckBox()
+        self.print_to_history_button.setChecked(category.print_to_history)
         self.is_singleton = QCheckBox()
         self.is_singleton.setChecked(category.is_singleton)
         self.done_button = QPushButton("Done")
@@ -198,9 +198,9 @@ class EditCategoryDialog(QDialog):
         self.layout.addRow("New Entry History Summary:", self.history_entry)
         self.layout.addRow("Update Entry History Summary:", self.update_history_entry)
         self.layout.addRow("Print Category to Overview?", self.print_to_overview_button)
+        self.layout.addRow("Print Category to History?", self.print_to_history_button)
         self.layout.addRow("Can entries change over time?", self.can_change_over_time)
         self.layout.addRow("Is Singleton?", self.is_singleton)
-        self.layout.addRow("Notes Only (No Output to Sheets)?", self.notes_only)
         self.layout.addRow("", self.done_button)
         self.setLayout(self.layout)
         self.setMinimumWidth(640)
@@ -234,7 +234,7 @@ class EditCategoryDialog(QDialog):
         if len(properties) == 0:
             return None
 
-        return Category(self.category_name.text(), properties, self.history_entry.text(), self.update_history_entry.text(), self.print_to_overview_button.isChecked(), self.can_change_over_time.isChecked(), self.is_singleton.isChecked(), self.notes_only.isChecked())
+        return Category(self.category_name.text(), properties, self.history_entry.text(), self.update_history_entry.text(), self.print_to_overview_button.isChecked(), self.can_change_over_time.isChecked(), self.is_singleton.isChecked(), self.print_to_history_button.isChecked())
 
     def get_instructions(self):
         return self.edit_instructions

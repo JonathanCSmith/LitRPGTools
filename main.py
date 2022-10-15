@@ -12,7 +12,6 @@ from data.data_holder import SerializationData
 from data.entries import Entry
 from data.tags import Tag
 from gui.core_gui import MainGUI
-from new_gui.gui import LitRPGGui
 from utils.gsheets import build_gsheets_communicator, SystemSheetLayoutHandler, HistorySheetLayoutHandler
 
 
@@ -45,7 +44,6 @@ class LitRPGTools:
 
     def start(self):
         self.gui = MainGUI(self, self.app)
-        # self.gui = LitRPGGui(self)
 
     def run(self):
         self.gui.show()
@@ -193,11 +191,11 @@ class LitRPGTools:
         self.history.insert(self.__history_index + 1, entry.unique_key)
         self.set_current_history_index(self.__history_index + 1)
 
-    def update_existing_entry_values(self, unique_key: str, values: list, should_print_to_output=None, should_print_to_history=None):
+    def update_existing_entry_values(self, unique_key: str, values: list, should_print_to_overview=None, should_print_to_history=None):
         entry = self.entries[unique_key]
         entry.set_values(values)
-        if should_print_to_output is not None:
-            entry.set_print_to_output(should_print_to_output)
+        if should_print_to_overview is not None:
+            entry.set_print_to_overview(should_print_to_overview)
         if should_print_to_history is not None:
             entry.print_to_history = should_print_to_history
 
@@ -488,7 +486,7 @@ class LitRPGTools:
 
                 # Loop through in the correct categories order
                 for category in self.categories.values():
-                    if not category.get_print_to_overview() or category.notes_only:
+                    if not category.get_print_to_overview():
                         current_count += 2
                         progress_bar.setValue(current_count)
                         continue

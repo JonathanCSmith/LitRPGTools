@@ -55,7 +55,7 @@ class SelectedView(QWidget):
     def handle_submit_button(self):
         data_out = self.get_data()
         current_selection = self.parent.history_list.currentRow()
-        self.engine.update_existing_entry_values(self.currently_selected.get_unique_key(), data_out, should_print_to_output=self.should_print_to_output.isChecked(), should_print_to_history=self.should_print_to_history.isChecked())
+        self.engine.update_existing_entry_values(self.currently_selected.get_unique_key(), data_out, should_print_to_overview=self.should_print_to_output.isChecked(), should_print_to_history=self.should_print_to_history.isChecked())
 
         # Check if this is the most recent entry
         current_key = self.currently_selected.get_unique_key()
@@ -80,7 +80,7 @@ class SelectedView(QWidget):
             if data_out[index] != old_data[index]:
                 diff = True
                 break
-        if not diff and self.should_print_to_output.isChecked() == target_entry.get_print_to_output():
+        if not diff and self.should_print_to_output.isChecked() == target_entry.get_print_to_overview():
             return
 
         # Add the entry with a parent set to the 'latest' at current head
@@ -88,7 +88,7 @@ class SelectedView(QWidget):
             self.currently_selected.get_category(),
             data_out,
             parent_key=target_key,
-            print_to_output=self.should_print_to_output.isChecked(),
+            print_to_overview=self.should_print_to_output.isChecked(),
             character=self.currently_selected.character,
             print_to_history=self.should_print_to_history.isChecked())
         self.engine.add_entry(entry)
@@ -161,12 +161,12 @@ class SelectedView(QWidget):
 
         # Print to output
         self.should_print_to_output = QCheckBox()
-        self.should_print_to_output.setChecked(self.currently_selected.get_print_to_output())
+        self.should_print_to_output.setChecked(self.currently_selected.get_print_to_overview())
         self.should_print_to_history = QCheckBox()
         self.should_print_to_history.setChecked(self.currently_selected.print_to_history)
         if parent_entry is not None:
             should_print_to_output_old = QCheckBox()
-            should_print_to_output_old.setChecked(parent_entry.get_print_to_output())
+            should_print_to_output_old.setChecked(parent_entry.get_print_to_overview())
             should_print_to_output_old.setEnabled(False)
 
             should_print_to_output_row = QHBoxLayout()
@@ -250,11 +250,8 @@ class CategoryView(QWidget):
     def handle_update(self, currently_selected, current_history_index):
         # Remove old items
         for item in self.current_layout:
-            try:
-                self.layout.removeWidget(item)
-                item.deleteLater()
-            except RuntimeError:
-                print("WYY")
+            self.layout.removeWidget(item)
+            item.deleteLater()
         self.current_layout.clear()
 
         category_items = self.engine.get_category_state_for_entity_at_time(self.category_name, self.parent.character, current_history_index)
@@ -271,7 +268,7 @@ class CategoryView(QWidget):
             entry = self.engine.get_entry(entry_key)
 
             # Skip hidden entries
-            if not entry.get_print_to_output() and not self.root_gui.display_hidden.isChecked():
+            if not entry.get_print_to_overview() and not self.root_gui.display_hidden.isChecked():
                 continue
 
             # Add in the data
@@ -289,7 +286,7 @@ class CategoryView(QWidget):
 
             # Add is printed indicator
             is_printed = QCheckBox()
-            is_printed.setChecked(entry.get_print_to_output())
+            is_printed.setChecked(entry.get_print_to_overview())
             is_printed.setEnabled(False)
             form_layout.addRow("Is printed to output?", is_printed)
 
@@ -692,7 +689,7 @@ class MainGUI(QMainWindow):
             entry = Entry(
                 selected_entry.get_category(),
                 selected_entry.get_values(),
-                print_to_output=selected_entry.get_print_to_output(),
+                print_to_overview=selected_entry.get_print_to_overview(),
                 character=target_dialog.character_selector.currentIndex(),
                 print_to_history=selected_entry.print_to_history)
 
@@ -710,7 +707,7 @@ class MainGUI(QMainWindow):
                 selected_entry.get_category(),
                 selected_entry.get_values(),
                 parent_key=parent_key,
-                print_to_output=selected_entry.get_print_to_output(),
+                print_to_overview=selected_entry.get_print_to_overview(),
                 character=target_dialog.character_selector.currentIndex(),
                 print_to_history=selected_entry.print_to_history)
 
@@ -725,7 +722,7 @@ class MainGUI(QMainWindow):
             entry = Entry(
                 entry_dialog.current_category.get_name(),
                 entry_dialog.get_data(),
-                print_to_output=entry_dialog.print_to_output.isChecked(),
+                print_to_overview=entry_dialog.print_to_output.isChecked(),
                 character=entry_dialog.character_selector.currentIndex(),
                 print_to_history=entry_dialog.print_to_history.isChecked())
 

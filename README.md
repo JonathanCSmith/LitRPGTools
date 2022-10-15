@@ -65,19 +65,18 @@ THINK about a dynamic properties system:
   * Deletion/Editing needs to be aware.
 
 ## What do I actually want
-1) Better clarity on display toggling
-2) Dynamic value tracking and injection into views
-3) Dynamic event triggering based on dynamic value editing 
-4) Spell checking
-5) Bullet points
-6) Find, Find & Replace
-7) Entry shows before & current & after? Or have button navigation?
-8) Possibly switch to deltas? 
-9) Better notifications when things are wrong
-10) Better history log text
-11) Come up with a mechanism that ensures updated entries (via dynamic data) is displayed in gsheets when desired.
-12) Code clean up
-13) Categories are versionable
+1) Dynamic value tracking and injection into views
+2) Dynamic event triggering based on dynamic value editing 
+3) Spell checking
+4) Bullet points
+5) Find, Find & Replace
+6) Entry shows before & current & after? Or have button navigation?
+7) Possibly switch to deltas? 
+8) Better notifications when things are wrong
+9) Better history log text
+10) Come up with a mechanism that ensures updated entries (via dynamic data) is displayed in gsheets when desired.
+11) Code clean up
+12) Categories are versionable
 
 #### CURRENTLY UNDERWAY CHARACTER != CATEGORY
 Delete character relocate
@@ -85,3 +84,4 @@ handle_update_menus -> delete character change in MainGUI
 
 ### DONE
 1) Categories are global but toggleable per entity.
+2) Better clarity on display toggling

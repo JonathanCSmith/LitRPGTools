@@ -30,10 +30,10 @@ def create_edit_dialog(main, entry_key_to_update):
     category = main.get_category(entry.get_category())
 
     # Create an edit entry dialog
-    entry_dialog = EditEntryDialog(category, entry.get_values(), entry.get_print_to_output(), entry.print_to_history)
+    entry_dialog = EditEntryDialog(category, entry.get_values(), entry.get_print_to_overview(), entry.print_to_history)
     entry_dialog.exec()
     if entry_dialog.viable:
-        main.update_existing_entry_values(entry_key_to_update, entry_dialog.get_data(), should_print_to_output=entry_dialog.print_to_output.isChecked(), should_print_to_history=entry_dialog.print_to_history.isChecked())
+        main.update_existing_entry_values(entry_key_to_update, entry_dialog.get_data(), should_print_to_overview=entry_dialog.print_to_output.isChecked(), should_print_to_history=entry_dialog.print_to_history.isChecked())
     return entry_dialog.viable
 
 
@@ -50,14 +50,14 @@ def create_update_dialog(engine, entry_key_to_update):
     category = engine.get_category(target_entry.get_category())
 
     # Create an update entry dialog
-    entry_dialog = EditEntryDialog(category, target_entry.get_values(), target_entry.get_print_to_output(), target_entry.print_to_history)
+    entry_dialog = EditEntryDialog(category, target_entry.get_values(), target_entry.get_print_to_overview(), target_entry.print_to_history)
     entry_dialog.exec()
     if entry_dialog.viable:
         entry = Entry(
             target_entry.get_category(),
             entry_dialog.get_data(),
             parent_key=target_key,
-            print_to_output=entry_dialog.print_to_output.isChecked(),
+            print_to_overview=entry_dialog.print_to_output.isChecked(),
             character=target_entry.character,
             print_to_history=entry_dialog.print_to_history.isChecked())
 
