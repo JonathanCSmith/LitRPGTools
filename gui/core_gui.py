@@ -353,37 +353,8 @@ class CharacterView(QTabWidget):
         self.tab_move(tab_index, tab_index + 1)
 
     def tab_move(self, start, end):
-        categories = self.engine.get_categories()
-
-        # Flip our ordering so our loop works
-        if start > end:
-            tmp = end
-            end = start
-            start = tmp
-
-        # Assuming we only move 1 spot each time...
-        if end - start != 1:
-            raise RuntimeError("Bad Assumption")
-
-        new_categories = OrderedDict()
-        count = 0
-        key_hold = None
-        value_hold = None
-        for key, value in categories.items():
-
-            # Store these values and skip without incrementing count
-            if count == start:
-                key_hold = key
-                value_hold = value
-            elif count == start + 1:
-                new_categories[key] = value
-                new_categories[key_hold] = value_hold
-            else:
-                new_categories[key] = value
-
-            count += 1
-
-        self.engine.set_categories(new_categories)
+        categories = self.engine.get_character_categories(self.character)
+        categories[start], categories[end] = categories[end], categories[start]
         self.category_tab_view.tabBar().moveTab(start, end)
 
     def handle_update(self, currently_selected, current_history_index):
@@ -683,6 +654,7 @@ class MainGUI(QMainWindow):
     def duplicate_not_child(self):
         selected_index = self.history_list.currentRow()
         selected_entry = self.engine.get_entry_by_index(selected_index)
+
         target_dialog = CharacterSelectDialog(self.engine)
         target_dialog.exec()
         if target_dialog.viable:
@@ -693,13 +665,20 @@ class MainGUI(QMainWindow):
                 character=target_dialog.character_selector.currentIndex(),
                 print_to_history=selected_entry.print_to_history)
 
+            # We can't duplicate (as an independent entry) if a category is a singleton and the character already has it
+            category = self.engine.get_category(selected_entry.get_category())
+            entries_for_category = self.engine.get_category_state_for_entity(selected_entry.get_category(), target_dialog.character_selector.currentIndex())
+            if category.is_singleton and entries_for_category is not None and len(entries_for_category) != 0:
+                return
+
             self.engine.add_entry(entry)
+            self.history_list.setCurrentRow(self.engine.get_history_index())
             self.handle_update()
 
     def duplicate_to_child(self):
         selected_index = self.history_list.currentRow()
         selected_entry = self.engine.get_entry_by_index(selected_index)
-        parent_key = self.engine.get_most_recent_revision_for_root_entry_key(selected_entry)
+        parent_key = self.engine.get_most_recent_revision_for_root_entry_key(selected_entry.unique_key)
         target_dialog = CharacterSelectDialog(self.engine)
         target_dialog.exec()
         if target_dialog.viable:
@@ -722,7 +701,7 @@ class MainGUI(QMainWindow):
             entry = Entry(
                 entry_dialog.current_category.get_name(),
                 entry_dialog.get_data(),
-                print_to_overview=entry_dialog.print_to_output.isChecked(),
+                print_to_overview=entry_dialog.print_to_overview.isChecked(),
                 character=entry_dialog.character_selector.currentIndex(),
                 print_to_history=entry_dialog.print_to_history.isChecked())
 

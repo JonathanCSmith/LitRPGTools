@@ -16,7 +16,7 @@ class CreateEntryDialog(QDialog):
         self.category_selector = QComboBox()
         self.categories = dict()
         self.category_selector.currentTextChanged.connect(self.category_changed)
-        self.print_to_output = None
+        self.print_to_overview = None
         self.print_to_history = None
         self.done_button = None
 
@@ -32,19 +32,19 @@ class CreateEntryDialog(QDialog):
         self.viable = False
 
     def character_changed(self):
-        all_categories = self.engine.get_categories()
+        all_categories = self.engine.get_character_categories(self.character_selector.currentText())
         if len(all_categories) == 0:
             return
 
         categories = dict()
-        for category_name, category_data in all_categories.items():
+        for category_name in all_categories:
             category = self.engine.get_category(category_name)
             if category.is_singleton:
                 view = self.engine.get_category_state_for_entity(category_name, self.character_selector.currentIndex())
                 if view is not None and len(view) != 0:
                     continue
 
-            categories[category_name] = category_data
+            categories[category_name] = category
         self.categories = categories
         self.category_selector.blockSignals(True)
         self.category_selector.clear()
@@ -73,12 +73,23 @@ class CreateEntryDialog(QDialog):
                 self.form_layout.addRow(name, item)
             else:
                 self.data.append(None)
-        self.print_to_output = QCheckBox()
-        self.print_to_output.setChecked(True)
-        self.form_layout.addRow("Print to output:", self.print_to_output)
+
+        self.print_to_overview = QCheckBox()
+        if self.current_category.print_to_overview:
+            self.print_to_overview.setChecked(True)
+        else:
+            self.print_to_overview.setChecked(False)
+            self.print_to_overview.setEnabled(False)
+        self.form_layout.addRow("Print to overview:", self.print_to_overview)
+
         self.print_to_history = QCheckBox()
-        self.print_to_history.setChecked(False)
+        if self.current_category.print_to_history:
+            self.print_to_history.setChecked(True)
+        else:
+            self.print_to_history.setChecked(False)
+            self.print_to_history.setEnabled(False)
         self.form_layout.addRow("Print to history:", self.print_to_history)
+
         self.done_button = QPushButton("Done")
         self.done_button.clicked.connect(self.handle_done)
         self.form_layout.addRow("", self.done_button)
@@ -100,17 +111,19 @@ class CreateEntryDialog(QDialog):
 
 
 class EditEntryDialog(QDialog):
-    def __init__(self, category, data, print_to_output, print_to_history):
+    def __init__(self, category, data, print_to_overview, print_to_history):
         super().__init__()
         self.category = category
         self.data_values = data
         self.data = list()
 
         # Form Content
-        self.print_to_output = QCheckBox()
-        self.print_to_output.setChecked(print_to_output)
+        self.print_to_overview = QCheckBox()
+        self.print_to_overview.setChecked(print_to_overview)
+        self.print_to_overview.setEnabled(self.category.print_to_overview)
         self.print_to_history = QCheckBox()
         self.print_to_history.setChecked(print_to_history)
+        self.print_to_history.setEnabled(self.category.print_to_history)
         self.done_button = QPushButton("Done")
         self.done_button.clicked.connect(self.handle_done)
 
@@ -136,7 +149,7 @@ class EditEntryDialog(QDialog):
                 self.form_layout.addRow(prop_name, item)
             else:
                 self.data.append(None)
-        self.form_layout.addRow("Print to output:", self.print_to_output)
+        self.form_layout.addRow("Print to overview:", self.print_to_overview)
         self.form_layout.addRow("Print to history:", self.print_to_history)
         self.form_layout.addRow("", self.done_button)
         self.setLayout(self.form_layout)
