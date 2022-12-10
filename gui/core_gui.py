@@ -89,7 +89,7 @@ class SelectedView(QWidget):
             data_out,
             parent_key=target_key,
             print_to_overview=self.should_print_to_output.isChecked(),
-            character=self.currently_selected.character,
+            character=self.currently_selected.category,
             print_to_history=self.should_print_to_history.isChecked())
         self.engine.add_entry(entry)
 

@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QDialog, QFormLayout, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox
 
-from gui.spell_check_plain_text import SpellTextEdit
+from new.ui.desktop.spelling_widgets import SpellTextEdit, SpellTextEditSingleLine
 
 
 class CreateEntryDialog(QDialog):
@@ -32,7 +32,11 @@ class CreateEntryDialog(QDialog):
         self.viable = False
 
     def character_changed(self):
-        all_categories = self.engine.get_character_categories(self.character_selector.currentText())
+        character = self.character_selector.currentText()
+        if character is None or character == "":
+            return
+
+        all_categories = self.engine.get_character_categories(character)
         if len(all_categories) == 0:
             return
 
@@ -67,7 +71,7 @@ class CreateEntryDialog(QDialog):
                 if property.requires_large_input():
                     item = SpellTextEdit("")
                 else:
-                    item = QLineEdit("")
+                    item = SpellTextEditSingleLine("")
 
                 self.data.append(item)
                 self.form_layout.addRow(name, item)

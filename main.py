@@ -62,7 +62,15 @@ class LitRPGTools:
         return self.characters
 
     def assign_categories_to_character(self, character: str, categories: list) -> None:
-        self.characters[character] = categories
+        # Re-order input list such that it maintains our known order
+        new_list = []
+        for entry in self.characters[character]:
+            if entry in categories:
+                new_list.append(entry)
+            categories.remove(entry)
+        new_list.extend(categories)
+
+        self.characters[character] = new_list
 
     def delete_character(self, character):
         del self.characters[character]
@@ -386,7 +394,7 @@ class LitRPGTools:
             self.characters = data_holder.characters
             self.categories = data_holder.categories
             self.history = data_holder.history
-            self.entries = data_holder.entries
+            self.entries = data_holder.members
             self.gsheets_credentials_path = data_holder.credentials
             self.tags = data_holder.tags
             history_index = data_holder.history_index
@@ -474,7 +482,7 @@ class LitRPGTools:
 
             # Loop through characters
             for i in range(len(self.characters)):
-                character = self.characters[i]
+                character = self.characters.keys()[i]
 
                 # Retrieve the 'Old' Sheet
                 old_system_sheet = SystemSheetLayoutHandler(self.gsheets_connector, worksheet, character + " Previous View")
@@ -485,7 +493,7 @@ class LitRPGTools:
                 system_sheet.clear_all()
 
                 # Loop through in the correct categories order
-                for category in self.categories.values():
+                for category in self.characters[character]:
                     if not category.get_print_to_overview():
                         current_count += 2
                         progress_bar.setValue(current_count)

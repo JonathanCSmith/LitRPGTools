@@ -16,23 +16,7 @@
 * Bug where load big file, load small file, history index > allowed for small file
 
 ##### Sprints:
-```
-deconvolve:
-    print to output
-    print to history
-    notes only
 
-    targets:
-        should be in history
-        should be in overview
-        should only be in GUI
-
-THINK about a dynamic properties system:
-    global registry
-    all 'entries' can have dynamic effects, categories can set common effects, effects are 'triggerable (don't update history?)'
-        downside to this plan is it doesnt auto add entries, but that may be fine
-    text 'lookup' function on {} (Can pull from global registry)
-```
 
 ### Problem Children for full state conversion:
 * Score manipulations are order dependent (if mix of additions and multiplications)
@@ -63,20 +47,6 @@ THINK about a dynamic properties system:
   * Entries need to 'watch' variables and dynamically update 
   * Chained create an entry - this need not be tracked in the save data
   * Deletion/Editing needs to be aware.
-
-## What do I actually want
-1) Dynamic value tracking and injection into views
-2) Dynamic event triggering based on dynamic value editing 
-3) Spell checking
-4) Bullet points
-5) Find, Find & Replace
-6) Entry shows before & current & after? Or have button navigation?
-7) Possibly switch to deltas? 
-8) Better notifications when things are wrong
-9) Better history log text
-10) Come up with a mechanism that ensures updated entries (via dynamic data) is displayed in gsheets when desired.
-11) Code clean up
-12) Categories are versionable
 
 #### CURRENTLY UNDERWAY CHARACTER != CATEGORY
 Delete character relocate

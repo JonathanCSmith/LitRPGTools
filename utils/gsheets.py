@@ -272,8 +272,8 @@ class HistorySheetLayoutHandler(SystemSheetLayoutHandler):
                 payload.append([header, value])
 
             # Write out with a buffer line
-            str_counter = f"{counter:03}"
-            self.write_next(([[characters[entry.character], str_counter]]))
+            str_counter = f"{counter:32}"
+            self.write_next(([[characters.keys()[entry.category], str_counter]]))
             self.write_next(payload, name="id_" + unique_key)
             self.write_next([["", ""]])
             counter += 1

@@ -342,7 +342,10 @@ class CategoryAssignmentDialog(QDialog):
             return
 
         # Get the currently enabled categories
-        currently_enabled = self.engine.get_character_categories(self.character_selector.currentText())
+        character = self.character_selector.currentText()
+        if character is None or character == "":
+            return
+        currently_enabled = self.engine.get_character_categories(character)
 
         # Delete the form layout contents up to a point - these are updated on the fly so have to use 1 as a hard index
         for row_index in range(1, self.form_layout.rowCount()):

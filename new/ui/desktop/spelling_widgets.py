@@ -27,7 +27,7 @@ __docformat__ = 'restructuredtext en'
 import sys
 import enchant
 from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtGui import QFocusEvent, QAction, QActionGroup, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QTextBlockUserData
+from PyQt6.QtGui import QFocusEvent, QAction, QActionGroup, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QTextBlockUserData, QFontMetrics
 from enchant import tokenize
 from enchant.utils import trim_suggestions
 from enchant.errors import TokenizerNotFoundError
@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import QPlainTextEdit, QMenu
 # from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QMenu,
 #                              QPlainTextEdit)
 
+
 class SpellTextEdit(QPlainTextEdit):
     """QPlainTextEdit subclass which does spell-checking using PyEnchant"""
 
@@ -55,7 +56,7 @@ class SpellTextEdit(QPlainTextEdit):
 
         # Start with a default dictionary based on the current locale.
         self.highlighter = EnchantHighlighter(self.document())
-        self.highlighter.setDict(enchant.Dict(tag='en_UK'))
+        self.highlighter.setDict(enchant.Dict(tag='en_UK'))  # TODO: This dict param is to fix a bug for ME - it needs to be fixed more permanently for others...
 
     def contextMenuEvent(self, event):
         """Custom context menu handler to add a spelling suggestions submenu"""
@@ -190,6 +191,35 @@ class SpellTextEdit(QPlainTextEdit):
         self.highlighter.setChunkers(chunkers)
         # TODO: Emit an event so this menu can trigger other things
 
+
+class SpellTextEditSingleLine(SpellTextEdit):
+    def __init__(self, *args):
+        super(SpellTextEditSingleLine, self).__init__(*args)
+
+        QTextEdFontMetrics = QFontMetrics(self.font())
+        self.QTextEdRowHeight = QTextEdFontMetrics.lineSpacing()
+        self.setFixedHeight(2 * self.QTextEdRowHeight)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.textChanged.connect(self.__handle_text_changed_callback)
+
+    def __handle_text_changed_callback(self):
+        # Validate that we never accept an 'enter'
+        badChars = ['\n', '\r']
+        cursor = self.textCursor()
+        curPos = cursor.position()
+        origText = self.toPlainText()
+        for char in origText:
+            if char in badChars:
+                cleanText = origText.replace(char, '')
+                self.blockSignals(True)
+                self.setText(cleanText)
+                self.blockSignals(False)
+                cursor.setPosition(curPos-1)
+        self.setTextCursor(cursor)
+
+
 class EnchantHighlighter(QSyntaxHighlighter):
     """QSyntaxHighlighter subclass which consults a PyEnchant dictionary"""
     tokenizer = None
@@ -227,7 +257,7 @@ class EnchantHighlighter(QSyntaxHighlighter):
         """Sets the spelling dictionary to be used"""
         try:
             self.tokenizer = tokenize.get_tokenizer(sp_dict.tag,
-                chunkers=self._chunkers, filters=self.token_filters)
+                                                    chunkers=self._chunkers, filters=self.token_filters)
         except TokenizerNotFoundError:
             # Fall back to the "good for most euro languages" English tokenizer
             self.tokenizer = tokenize.get_tokenizer(

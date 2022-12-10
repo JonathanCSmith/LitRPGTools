@@ -58,7 +58,7 @@ def create_update_dialog(engine, entry_key_to_update):
             entry_dialog.get_data(),
             parent_key=target_key,
             print_to_overview=entry_dialog.print_to_overview.isChecked(),
-            character=target_entry.character,
+            character=target_entry.category,
             print_to_history=entry_dialog.print_to_history.isChecked())
 
         engine.add_entry(entry)
