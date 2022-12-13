@@ -161,7 +161,7 @@ class CategoryDialog(QDialog):
         # General
         self.setWindowTitle("New Category.")
 
-        # Form components
+        # Category contents
         self.__category_name = QLineEdit()
         self.__category_properties_table = QTableWidget()
         self.__category_properties_table.setColumnCount(2)
@@ -170,11 +170,50 @@ class CategoryDialog(QDialog):
         self.__category_properties_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.__category_properties_table.setRowCount(1)
         self.__category_properties_table.setVerticalHeaderItem(0, QTableWidgetItem("0"))
+
+        # History information display in side panel
         self.__created_history_field = QLineEdit()
         self.__updated_history_field = QLineEdit()
+
+        # Behaviour switches
         self.__print_to_overview_button = QCheckBox()
         self.__can_change_over_time = QCheckBox()
         self.__is_singleton = QCheckBox()
+
+        # Dynamic data instancing
+        self.__dynamic_instances_table = QTableWidget()
+        self.__dynamic_instances_table.setColumnCount(3)
+        self.__dynamic_instances_table.setHorizontalHeaderItem(0, QTableWidgetItem("Dynamic Data Key"))
+        self.__dynamic_instances_table.setHorizontalHeaderItem(1, QTableWidgetItem("Initial Value"))
+        self.__dynamic_instances_table.setHorizontalHeaderItem(2, QTableWidgetItem("Initial Value Format"))
+        self.__dynamic_instances_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.__dynamic_instances_table.setRowCount(1)
+        self.__dynamic_instances_table.setVerticalHeaderItem(0, QTableWidgetItem("0"))
+        self.__dynamic_instances_table.cellChanged.connect(self.__handle_dynamic_data_instances_cell_changed_callback)
+
+        # Dynamic data modifications
+        self.__dynamic_modifications_table = QTableWidget()
+        self.__dynamic_modifications_table.setColumnCount(3)
+        self.__dynamic_modifications_table.setHorizontalHeaderItem(0, QTableWidgetItem("Modification Target"))
+        self.__dynamic_modifications_table.setHorizontalHeaderItem(1, QTableWidgetItem("Modification Type"))
+        self.__dynamic_modifications_table.setHorizontalHeaderItem(2, QTableWidgetItem("Modification Calculation (String Representation)"))
+        self.__dynamic_modifications_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.__dynamic_modifications_table.setRowCount(1)
+        self.__dynamic_modifications_table.setVerticalHeaderItem(0, QTableWidgetItem("0"))
+        self.__dynamic_modifications_table.cellChanged.connect(self.__handle_dynamic_data_modifications_cell_changed_callback)
+
+        # Dynamic modification templating
+        self.__dynamic_modification_templates_table = QTableWidget()
+        self.__dynamic_modification_templates_table.setColumnCount(3)
+        self.__dynamic_modification_templates_table.setHorizontalHeaderItem(0, QTableWidgetItem("Modification Target"))
+        self.__dynamic_modification_templates_table.setHorizontalHeaderItem(1, QTableWidgetItem("Modification Type"))
+        self.__dynamic_modification_templates_table.setHorizontalHeaderItem(2, QTableWidgetItem("Modification Calculation (String Representation)"))
+        self.__dynamic_modification_templates_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.__dynamic_modification_templates_table.setRowCount(1)
+        self.__dynamic_modification_templates_table.setVerticalHeaderItem(0, QTableWidgetItem("0"))
+        self.__dynamic_modification_templates_table.cellChanged.connect(self.__handle_dynamic_data_modification_templates_cell_changed_callback)
+
+        # Buttons
         self.__cancel_button = QPushButton("Cancel")
         self.__cancel_button.clicked.connect(self.__handle_cancel_callback)
         self.__done_button = QPushButton("Done")
@@ -190,6 +229,11 @@ class CategoryDialog(QDialog):
         self.__layout.addRow("Category displayed in Overview?", self.__print_to_overview_button)
         self.__layout.addRow("Can entries change over time?", self.__can_change_over_time)
         self.__layout.addRow("Is Singleton?", self.__is_singleton)
+        self.__layout.addRow("", QLabel("The next section deals with dynamic data. Only use if you understand what is going on."))
+        self.__layout.addRow("Dynamic Data New Instances", self.__dynamic_instances_table)
+        self.__layout.addRow("Dynamic Data Modifications", self.__dynamic_modifications_table)
+        self.__layout.addRow("", QLabel("The next section deals with dynamic data modification templates for all entries. Only use if you understand what is going on."))
+        self.__layout.addRow("Dynamic Data Modification Templates", self.__dynamic_modification_templates_table)
         self.__layout.addRow(self.__cancel_button, self.__done_button)
         self.setLayout(self.__layout)
         self.setMinimumWidth(640)
@@ -198,29 +242,73 @@ class CategoryDialog(QDialog):
         if category is None:
             self.__category_properties_table.setItem(0, 0, QTableWidgetItem(""))
             add_checkbox_in_table_at(self.__category_properties_table, 0)
-            self.__category_properties_table.cellChanged.connect(self.__handle_cell_changed_callback)
+            self.__category_properties_table.cellChanged.connect(self.__handle_contents_cell_changed_callback)
         else:
             self.__fill_data(category)
 
             # Add context menu for editing the order of contents
             self.__category_properties_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            self.__category_properties_table.customContextMenuRequested.connect(self.__create_context_menu)
+            self.__category_properties_table.customContextMenuRequested.connect(self.__create_content_context_menu)
 
     def __fill_data(self, category: Category):
         self.__category_name.setText(category.name)
-        self.__created_history_field.setText(category.creation_text)
-        self.__updated_history_field.setText(category.update_text)
-        self.__category_properties_table.setRowCount(len(category.contents))
+
+        # Content table
         self.__category_properties_table.blockSignals(True)
+        self.__category_properties_table.setRowCount(len(category.contents))
         for i, (k, v) in enumerate(category.contents.items()):
             self.__category_properties_table.setItem(i, 0, QTableWidgetItem(k))
             add_checkbox_in_table_at(self.__category_properties_table, i, state=v)
+        self.__category_properties_table.blockSignals(False)
+
+        # History display
+        self.__created_history_field.setText(category.creation_text)
+        self.__updated_history_field.setText(category.update_text)
+
+        # Behaviour switches
         self.__print_to_overview_button.setChecked(category.print_to_character_overview)
         self.__can_change_over_time.setChecked(category.can_update)
         self.__is_singleton.setChecked(category.single_entry_only)
-        self.__category_properties_table.blockSignals(False)
 
-    def __handle_cell_changed_callback(self, row, column):
+        # Dynamic data instances table
+        self.__dynamic_instances_table.blockSignals(True)
+        self.__dynamic_instances_table.setRowCount(len(category.dynamic_data_initialisations))
+        for i, (k, v) in enumerate(category.dynamic_data_initialisations.items()):
+            self.__dynamic_instances_table.setItem(i, 0, QTableWidgetItem(k))
+            self.__dynamic_instances_table.setItem(i, 1, QTableWidgetItem(str(v)))
+            data_type_selector = widget_factories.create_dynamic_data_type_selector()
+            if isinstance(v, str):
+                data_type_selector.setCurrentText("STRING")
+            elif isinstance(v, int):
+                data_type_selector.setCurrentText("INT")
+            else:
+                data_type_selector.setCurrentText("FLOAT")
+            self.__dynamic_instances_table.setItem(i, 2, QTableWidgetItem(data_type_selector))
+        self.__dynamic_instances_table.blockSignals(False)
+
+        # Dynamic data modifications table
+        self.__dynamic_modifications_table.blockSignals(True)
+        self.__dynamic_modifications_table.setRowCount(len(category.dynamic_data_operations))
+        for i, (k, (o, t)) in enumerate(category.dynamic_data_operations.items()):
+            self.__dynamic_modifications_table.setItem(i, 0, QTableWidgetItem(k))
+            self.__dynamic_modifications_table.setItem(i, 2, QTableWidgetItem(o))
+            operation_type_selector = widget_factories.create_dynamic_operation_type_selector()
+            operation_type_selector.setCurrentText(t)
+            self.__dynamic_modifications_table.setItem(i, 1, QTableWidgetItem(operation_type_selector))
+        self.__dynamic_modifications_table.blockSignals(False)
+
+        # Dynamic data modifications table
+        self.__dynamic_modification_templates_table.blockSignals(True)
+        self.__dynamic_modification_templates_table.setRowCount(len(category.dynamic_data_operation_templates))
+        for i, (k, (o, t)) in enumerate(category.dynamic_data_operation_templates.items()):
+            self.__dynamic_modification_templates_table.setItem(i, 0, QTableWidgetItem(k))
+            self.__dynamic_modification_templates_table.setItem(i, 2, QTableWidgetItem(o))
+            operation_type_selector = widget_factories.create_dynamic_operation_type_selector()
+            operation_type_selector.setCurrentText(t)
+            self.__dynamic_modification_templates_table.setItem(i, 1, QTableWidgetItem(operation_type_selector))
+        self.__dynamic_modification_templates_table.blockSignals(False)
+
+    def __handle_contents_cell_changed_callback(self, row, column):
         # Only interested in the primary column updates
         if column != 0:
             return
@@ -243,6 +331,75 @@ class CategoryDialog(QDialog):
         add_checkbox_in_table_at(self.__category_properties_table, target_row)
         self.__category_properties_table.blockSignals(False)
 
+    def __handle_dynamic_data_instances_cell_changed_callback(self, row, column):
+        # Only interested in the primary column updates
+        if column != 0:
+            return
+
+        # Ensure that something was actually added, so we aren't adding rows willy-nilly, also that we are editing the last row
+        item = self.__dynamic_instances_table.item(row, 0)
+        if item is None:
+            return
+        item = item.text()
+        if item == "":
+            return
+        target_row = row + 1
+        if self.__dynamic_instances_table.rowCount() != target_row:
+            return
+
+        # Add a row
+        self.__dynamic_instances_table.blockSignals(True)
+        self.__dynamic_instances_table.insertRow(target_row)
+        self.__dynamic_instances_table.setVerticalHeaderItem(target_row, QTableWidgetItem(str(target_row)))
+        self.__dynamic_instances_table.setItem(target_row, 2, QTableWidgetItem(widget_factories.create_dynamic_data_type_selector()))
+        self.__dynamic_instances_table.blockSignals(False)
+
+    def __handle_dynamic_data_modifications_cell_changed_callback(self, row, column):
+        # Only interested in the primary column updates
+        if column != 0:
+            return
+
+        # Ensure that something was actually added, so we aren't adding rows willy-nilly, also that we are editing the last row
+        item = self.__dynamic_modifications_table.item(row, 0)
+        if item is None:
+            return
+        item = item.text()
+        if item == "":
+            return
+        target_row = row + 1
+        if self.__dynamic_modifications_table.rowCount() != target_row:
+            return
+
+        # Add a row
+        self.__dynamic_modifications_table.blockSignals(True)
+        self.__dynamic_modifications_table.insertRow(target_row)
+        self.__dynamic_modifications_table.setVerticalHeaderItem(target_row, QTableWidgetItem(str(target_row)))
+        self.__dynamic_modifications_table.setItem(target_row, 1, QTableWidgetItem(widget_factories.create_dynamic_operation_type_selector()))
+        self.__dynamic_modifications_table.blockSignals(False)
+
+    def __handle_dynamic_data_modification_templates_cell_changed_callback(self, row, column):
+        # Only interested in the primary column updates
+        if column != 0:
+            return
+
+        # Ensure that something was actually added, so we aren't adding rows willy-nilly, also that we are editing the last row
+        item = self.__dynamic_modification_templates_table.item(row, 0)
+        if item is None:
+            return
+        item = item.text()
+        if item == "":
+            return
+        target_row = row + 1
+        if self.__dynamic_modification_templates_table.rowCount() != target_row:
+            return
+
+        # Add a row
+        self.__dynamic_modification_templates_table.blockSignals(True)
+        self.__dynamic_modification_templates_table.insertRow(target_row)
+        self.__dynamic_modification_templates_table.setVerticalHeaderItem(target_row, QTableWidgetItem(str(target_row)))
+        self.__dynamic_modification_templates_table.setItem(target_row, 1, QTableWidgetItem(widget_factories.create_dynamic_operation_type_selector()))
+        self.__dynamic_modification_templates_table.blockSignals(False)
+
     def __handle_cancel_callback(self):
         self.success = False
         self.close()
@@ -262,6 +419,65 @@ class CategoryDialog(QDialog):
             # Determine if we should be using a large input format
             contents[property_name] = self.__category_properties_table.cellWidget(row_index, 1).checkState() == Qt.CheckState.Checked
 
+        # Build our dynamic data new instances
+        new_instances = dict()
+        for row_index in range(self.__dynamic_instances_table.rowCount()):
+            item = self.__dynamic_instances_table.item(row_index, 0)
+
+            # Continue if empty
+            if item is None:
+                continue
+            dynamic_key = item.text()
+            if dynamic_key == "":
+                continue
+
+            type = self.__dynamic_instances_table.item(row_index, 2).currentText()
+            try:
+                match type:
+                    case "STRING":
+                        new_instances[dynamic_key] = self.__dynamic_instances_table.item(row_index, 1).text()
+                    case "INT":
+                        new_instances[dynamic_key] = int(self.__dynamic_instances_table.item(row_index, 1).text())
+                    case "FLOAT":
+                        new_instances[dynamic_key] = float(self.__dynamic_instances_table.item(row_index, 1).text())
+                    case _:
+                        raise Exception("Not a valid type string")
+            except Exception as e:
+                self.__handle_cancel_callback()
+                return
+
+        # Build our dynamic data new instances
+        modifications = dict()
+        for row_index in range(self.__dynamic_modifications_table.rowCount()):
+            item = self.__dynamic_modifications_table.item(row_index, 0)
+
+            # Continue if empty
+            if item is None:
+                continue
+            dynamic_key = item.text()
+            if dynamic_key == "":
+                continue
+
+            operation = self.__dynamic_modifications_table.item(row_index, 1).text()
+            type = self.__dynamic_modifications_table.item(row_index, 2).currentText()
+            modifications[dynamic_key] = (operation, type)
+
+        # Build our dynamic data new instances
+        template_modifications = dict()
+        for row_index in range(self.__dynamic_modification_templates_table.rowCount()):
+            item = self.__dynamic_modification_templates_table.item(row_index, 0)
+
+            # Continue if empty
+            if item is None:
+                continue
+            dynamic_key = item.text()
+            if dynamic_key == "":
+                continue
+
+            operation = self.__dynamic_modification_templates_table.item(row_index, 1).text()
+            type = self.__dynamic_modification_templates_table.item(row_index, 2).currentText()
+            template_modifications[dynamic_key] = (operation, type)
+
         # Empty == bail
         if len(contents) == 0:
             self.generated_category = None
@@ -276,7 +492,10 @@ class CategoryDialog(QDialog):
                 update_text=self.__updated_history_field.text(),
                 print_to_character_overview=print_to_overview,
                 can_update=can_update,
-                single_entry_only=single_entry
+                single_entry_only=single_entry,
+                dynamic_data_initialisations=new_instances,
+                dynamic_data_operations=modifications,
+                dynamic_data_operation_templates=template_modifications
             )
 
         # Check if an item has been removed from our original input list
@@ -293,7 +512,7 @@ class CategoryDialog(QDialog):
             self.success = True
         self.close()
 
-    def __create_context_menu(self, pos):
+    def __create_content_context_menu(self, pos):
         if self.__category_properties_table.itemAt(pos) is None:
             return
 

@@ -37,6 +37,7 @@ class Category(Data):
             single_entry_only: bool = False,
             dynamic_data_initialisations: Dict[str, Any] = None,
             dynamic_data_operations: Dict[str, Tuple[str, str]] = None,
+            dynamic_data_operation_templates: Dict[str, Tuple[str, str]] = None,
             unique_id: str = None):
         super(Category, self).__init__(unique_id)
 
@@ -53,6 +54,9 @@ class Category(Data):
         if dynamic_data_operations is None:
             dynamic_data_operations: Dict[str, Tuple[str, str]] = dict()
         self.dynamic_data_operations: Dict[str, Tuple[str, str]] = dynamic_data_operations
+        if dynamic_data_operation_templates is None:
+            dynamic_data_operation_templates: Dict[str, Tuple[str, str]] = dict()
+        self.dynamic_data_operation_templates: Dict[str, Tuple[str, str]] = dynamic_data_operation_templates
 
 
 class Output(Data):

@@ -41,6 +41,8 @@ def create_entry_form(target_layout: QFormLayout, character: Character | None, c
         target_layout.addRow(key, input_field)
         callback_for_editables.append(input_field)
 
+    # TODO: Dynamic Data
+
     # Add display for 'disabled'
     check_box = QCheckBox()
     if entry is not None:
@@ -142,29 +144,46 @@ def create_category_form(target_layout, category: Category):
     is_singleton_check_box.setEnabled(False)
     target_layout.addRow("Is singleton?", is_singleton_check_box)
 
+    # Dynamic data initialisations
+    ddi_widget = QWidget()
+    ddi_layout = QFormLayout()
+    ddi_widget.setLayout(ddi_layout)
+    for k, v in category.dynamic_data_initialisations:
+        ddi_layout.addRow(k, QLabel(str(v)))
+    target_layout.addRow("Dynamic Data Initialisations", ddi_widget)
 
-def create_output_form(target_layout, output: Output, history_indices: list):
-    # Name field
-    unique_name_field = QLineEdit(output.name)
-    unique_name_field.setReadOnly(True)
-    target_layout.addRow("Unique Name:", unique_name_field)
+    # Dynamic data modifications
+    ddm_widget = QWidget()
+    ddm_layout = QFormLayout()
+    ddm_widget.setLayout(ddm_layout)
+    for k, (o, t) in category.dynamic_data_operations:
+        operation_and_type_widget = QWidget()
+        operation_and_type_layout = QHBoxLayout()
+        operation_and_type_widget.setLayout(operation_and_type_layout)
+        operation_and_type_layout.addWidget(QLabel(o))
+        operation_and_type_layout.addWidget(QLabel(t))
+        ddm_layout.addRow(k, operation_and_type_widget)
+    target_layout.addRow("Dynamic Data Modifications", ddm_widget)
 
-    # Early boundary
-    output_from_field = QLineEdit(str(output.from_index))
-    output_from_field.setReadOnly(True)
-    target_layout.addRow("Output History From:", output_from_field)
+    # Dynamic data modifications
+    ddmt_widget = QWidget()
+    ddmt_layout = QFormLayout()
+    ddmt_widget.setLayout(ddmt_layout)
+    for k, (o, t) in category.dynamic_data_operation_templates:
+        operation_and_type_widget = QWidget()
+        operation_and_type_layout = QHBoxLayout()
+        operation_and_type_widget.setLayout(operation_and_type_layout)
+        operation_and_type_layout.addWidget(QLabel(o))
+        operation_and_type_layout.addWidget(QLabel(t))
+        ddmt_layout.addRow(k, operation_and_type_widget)
+    target_layout.addRow("Dynamic Data Modifications", ddmt_widget)
 
-    # Late boundary
-    output_to_field = QLineEdit(str(output.to_index))
-    output_to_field.setReadOnly(True)
-    target_layout.addRow("Output History To (Inclusive):", output_to_field)
+def create_dynamic_data_type_selector() -> QComboBox:
+    combo_box = QComboBox()
+    combo_box.addItems(["STRING", "INT", "FLOAT"])
+    return combo_box
 
-    # Gsheets target
-    target_gsheet_field = QComboBox(output.gsheet_target)
-    target_gsheet_field.setReadOnly(True)
-    target_layout.addRow("Target GSheet:", target_gsheet_field)
-
-    # History Index Members
-    members_field = QPlainTextEdit("\n".join(history_indices))
-    members_field.setReadOnly(True)
-    target_layout.addRow("Current Members (Index in History):", members_field)
+def create_dynamic_operation_type_selector() -> QComboBox:
+    combo_box = QComboBox()
+    combo_box.addItems(["ASSIGN", "ADD INTEGER", "ADD FLOAT", "SUBTRACT INTEGER", "SUBTRACT FLOAT", "MULTIPLY INTEGER", "MULTIPLY FLOAT", "DIVIDE INTEGER", "DIVIDE FLOAT"])
+    return combo_box

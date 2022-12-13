@@ -105,6 +105,8 @@ def add_or_edit_entry(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGU
         # Put the data back in the original
         entry.is_disabled = copy_entry.is_disabled
         entry.data = copy_entry.data
+        entry.dynamic_data_initialisations = copy_entry.dynamic_data_initialisations
+        entry.dynamic_data_operations = copy_entry.dynamic_data_operations
 
     # Bail if there are no children
     if entry.child_id is None:

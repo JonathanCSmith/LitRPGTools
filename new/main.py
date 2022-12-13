@@ -12,9 +12,10 @@ from new.ui.desktop.gui import LitRPGToolsDesktopGUI
 
 
 """
-TODO: Dynamic data infrastructure. Add dynamic data flag to category info, add category specific dynamic data. Dynamic data declaration and secondary, tertiary modifiers. Dynamic data view options. Dynamic data summary tab.
-TODO: Dynamic data edits
-TODO: Category defines a 'template' operation to do per entry!!! -> These should be added to entry dynamic data on entry creation!!! saves so much headache
+TODO: Dynamic data GUI infrastructure
+    Entry:
+        Everything
+        
 TODO: History log text inject category info etc etc
  
 TODO: GSheets re-impl, When 'deleting' entries that were previously published, they are 'forgotten' and old references stay around (gsheets). More logical ordering of 'named ranges' for published information - make navigation easier.
@@ -230,6 +231,9 @@ class LitRPGToolsEngine:
                             item = entry.data.pop(location)
                             entry.data.insert(location + 1, item)
 
+        # Update our dynamic data store
+        self.__dynamic_data_store.update()
+
     def delete_category(self, category: Category, rebuild_caches=True):
         # Get the entries that match this category for deletion
         for character_id in self.__character_category_root_entry_cache:
@@ -436,6 +440,16 @@ class LitRPGToolsEngine:
 
             # Update history which will also trigger a cache recalculation
             self.__add_to_history(entry.unique_id, index, rebuild_caches=rebuild_caches)
+
+    def edit_entry(self, entry: Entry):
+        if entry.unique_id not in self.__entries:
+            return
+
+        # Typically this would actually be the same entry as most operations in place edit the entry, but just in case
+        self.__entries[entry.unique_id] = entry
+
+        # Update our dynamic data store - the real reason this function exists
+        self.__dynamic_data_store.update()
 
     def move_entry_to(self, entry: Entry, index: int, rebuild_caches=True):
         if entry.parent_id is None and entry.child_id is None:
