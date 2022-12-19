@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QDialog, QFormLayout, QPushButton, QComboBox, QLineEdit, QLabel, QCheckBox
 
-from new.ui.desktop.spelling_widgets import SpellTextEdit, SpellTextEditSingleLine
+from new.ui.desktop.spelling_components import SpellTextEdit, SpellTextEditSingleLine
 
 
 class CreateEntryDialog(QDialog):

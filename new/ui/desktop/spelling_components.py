@@ -198,7 +198,7 @@ class SpellTextEditSingleLine(SpellTextEdit):
 
         QTextEdFontMetrics = QFontMetrics(self.font())
         self.QTextEdRowHeight = QTextEdFontMetrics.lineSpacing()
-        self.setFixedHeight(2 * self.QTextEdRowHeight)
+        self.setFixedHeight((2 * self.QTextEdRowHeight) - 1)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

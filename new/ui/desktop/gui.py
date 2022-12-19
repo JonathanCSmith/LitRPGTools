@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPalette, QColor
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QWidget, QVBoxLayout, QComboBox, QListWidget, QAbstractItemView, QPushButton, QListWidgetItem, QLabel, QTabWidget, QCheckBox
+from PyQt6.QtWidgets import QMainWindow, QFileDialog, QWidget, QVBoxLayout, QComboBox, QListWidget, QAbstractItemView, QPushButton, QListWidgetItem, QLabel, QTabWidget, QCheckBox, QMessageBox
 
 from new.data import Character, Category, Entry
-from new.ui.desktop import gui_actions
-from new.ui.desktop.custom_generic_widgets import VisibleDynamicSplitPanel
-from new.ui.desktop.dialogs import OutputDialog
-from new.ui.desktop.tabs import SelectedTab, SearchTab, OutputsTab, CharacterTab
+from new.ui.desktop import category_components, character_components, entry_components, output_components
+from new.ui.desktop.custom_generic_components import VisibleDynamicSplitPanel
+from new.ui.desktop.output_components import OutputsTab
+from new.ui.desktop.tabs import SelectedTab, SearchTab, CharacterTab
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QApplication
@@ -38,11 +38,11 @@ class SidebarWidget(QWidget):
 
         # New entry button
         self.__new_entry_button = QPushButton("Create Entry at Current History Index")
-        self.__new_entry_button.clicked.connect(partial(gui_actions.add_or_edit_entry, self.__engine, self.__parent, None))
+        self.__new_entry_button.clicked.connect(partial(entry_components.add_entry, self.__engine, self.__parent, None))
 
         # New view button
         self.__new_view_button = QPushButton("Create View at Current History Index")
-        self.__new_view_button.clicked.connect(partial(gui_actions.add_or_edit_output, self.__engine, self.__parent, None))
+        self.__new_view_button.clicked.connect(partial(output_components.add_or_edit_output, self.__engine, self.__parent, None))
 
         # 'View' buttons
         self.__display_hidden_checkbox = QCheckBox("Display Hidden Entries")
@@ -74,9 +74,8 @@ class SidebarWidget(QWidget):
         # Block signals on the callback whilst we update so no recursion
         self.__active_list.itemSelectionChanged.disconnect(self.__handle_sidebar_selection_changed_callback)
         self.__parent.handle_update()
-        self.__active_list.itemSelectionChanged.connect(self.__handle_sidebar_selection_changed_callback)
-
         self.__paint_list()
+        self.__active_list.itemSelectionChanged.connect(self.__handle_sidebar_selection_changed_callback)
 
     def __paint_list(self):
         for i in range(self.__active_list.count()):
@@ -96,6 +95,7 @@ class SidebarWidget(QWidget):
 
         # Highlight based on 'selector' to green?
         output_id = self.__highlight_selector.currentData()
+        entry_id = self.__engine.get_entry_id_by_history_index(index)
         if output_id is not None:
             output = self.__engine.get_output_by_id(output_id)
             if entry_id in output.members:
@@ -229,7 +229,7 @@ class ViewWidget(QWidget):
         # Default tabs
         self.__selected_tab = SelectedTab(self.__parent, self.__engine)
         self.__search_tab = SearchTab(self.__parent, self.__engine)
-        self.__views_tab = OutputsTab(self.__parent, self.__engine)
+        self.__outputs_tab = OutputsTab(self.__parent, self.__engine)
 
         # Additional tabs
         self.__tabs_cache = OrderedDict()
@@ -260,7 +260,7 @@ class ViewWidget(QWidget):
         self.__tabbed_view.clear()
         self.__tabbed_view.addTab(self.__selected_tab, "Currently Selected")
         self.__tabbed_view.addTab(self.__search_tab, "Search")
-        self.__tabbed_view.addTab(self.__views_tab, "Views")
+        self.__tabbed_view.addTab(self.__outputs_tab, "Outputs")
         character_ids = self.__engine.get_character_ids()
         for character_id in character_ids:
             character = self.__engine.get_character_by_id(character_id)
@@ -283,7 +283,7 @@ class ViewWidget(QWidget):
             del self.__tabs_cache[item]
 
         # Return to selected if possible
-        tab_list = ["Currently Selected", "Search", "Views"]
+        tab_list = ["Currently Selected", "Search", "Outputs"]
         tab_list.append(self.__tabs_cache.keys())
         if current_tab_text in tab_list:
             index = tab_list.index(current_tab_text)
@@ -347,6 +347,9 @@ class LitRPGToolsDesktopGUI(QMainWindow):
         self.__main_widget.setContentsMargins(0, 0, 0, 0)
         self.setCentralWidget(self.__main_widget)
 
+        # Handle autosaves
+        self.check_for_autosaves()
+
         # Force update
         self.handle_update()
 
@@ -382,7 +385,7 @@ class LitRPGToolsDesktopGUI(QMainWindow):
         self.__character_menu = self.__menu_bar.addMenu("Characters")
 
         self.__add_character_menu_action = self.__character_menu.addAction("Add")
-        self.__add_character_menu_action.triggered.connect(partial(gui_actions.add_or_edit_character, self.__engine, self, None))
+        self.__add_character_menu_action.triggered.connect(partial(character_components.add_or_edit_character, self.__engine, self, None))
 
         self.__edit_character_menu_action = self.__character_menu.addMenu("Edit")
 
@@ -392,7 +395,7 @@ class LitRPGToolsDesktopGUI(QMainWindow):
         self.__category_menu = self.__menu_bar.addMenu("Categories")
 
         self.__add_category_menu_action = self.__category_menu.addAction("Add")
-        self.__add_category_menu_action.triggered.connect(partial(gui_actions.add_or_edit_category, self.__engine, self, None))
+        self.__add_category_menu_action.triggered.connect(partial(category_components.add_or_edit_category, self.__engine, self, None))
 
         self.__edit_category_menu_action = self.__category_menu.addMenu("Edit")
 
@@ -405,32 +408,46 @@ class LitRPGToolsDesktopGUI(QMainWindow):
             self.__engine.save()
 
     def __handle_save_as_callback(self):
-        file = QFileDialog.getSaveFileName(self, "Save File", "*.litrpg", filter="*.litrpg")
-        if file[0] == "":
+        results = QFileDialog.getSaveFileName(self, "Save File", "*.litrpg", filter="*.litrpg")
+        if results[0] == "":
             return
 
-        self.__engine.file_save_path = file
+        self.__engine.file_save_path = results[0]
         self.__engine.save()
 
     def __handle_load_callback(self):
-        file = QFileDialog.getSaveFileName(self, "Save File", "*.litrpg", filter="*.litrpg")
-        if file[0] == "":
+        results = QFileDialog.getOpenFileName(self, "Load File", filter="*.litrpg")
+        if results[0] == "":
             return
 
-        self.__engine.file_save_path = file
+        self.__engine.file_save_path = results[0]
         self.__engine.load()
 
     def __handle_load_gsheet_credentials_callback(self):
-        file = QFileDialog.getOpenFileName(self, 'OpenFile', filter="*.json")
-        if file[0] == "":
+        results = QFileDialog.getOpenFileName(self, 'Load GSheets Credentials File', filter="*.json")
+        if results[0] == "":
             return
 
-        self.__engine.load_gsheets_credentials(file)
+        self.__engine.load_gsheets_credentials(results[0])
 
     def __handle_output_to_gsheets_callback(self):
         # Attempt a save before outputting
         self.__handle_save_callback()
         self.__engine.output_to_gsheets()
+
+    def check_for_autosaves(self):
+        if self.__engine.has_autosave():
+            result = QMessageBox.question(self, "Autosave Detected", "Do you wish to load the autosave? This was likely created prior to a crash...", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            if result == QMessageBox.StandardButton.Yes:
+                self.__engine.load_autosave()
+            else:
+                self.__engine.delete_autosave()
+
+    def closeEvent(self, a0):
+        result = QMessageBox.question(self, "Are you sure?", "Do you want to save before you exit?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if result == QMessageBox.StandardButton.Yes:
+            self.__handle_save_callback()
+        self.__engine.delete_autosave()
 
     def handle_update(self):
         # TODO get index or forced index
@@ -453,9 +470,9 @@ class LitRPGToolsDesktopGUI(QMainWindow):
         # Loop through available characters and add actions for their characters specifically
         for character in characters:
             action = self.__edit_character_menu_action.addAction(character.name)
-            action.triggered.connect(partial(gui_actions.add_or_edit_character, self.__engine, self, character))
+            action.triggered.connect(partial(character_components.add_or_edit_character, self.__engine, self, character))
             action = self.__delete_character_menu_action.addAction(character.name)
-            action.triggered.connect(partial(gui_actions.delete_character, self.__engine, self, character))
+            action.triggered.connect(partial(character_components.delete_character, self.__engine, self, character))
 
     def __handle_update_category_submenu(self):
         categories = self.__engine.get_categories()
@@ -465,9 +482,9 @@ class LitRPGToolsDesktopGUI(QMainWindow):
         # Loop through available characters and add actions for their characters specifically
         for category in categories:
             action = self.__edit_category_menu_action.addAction(category.name)
-            action.triggered.connect(partial(gui_actions.add_or_edit_category, self.__engine, self, category))
+            action.triggered.connect(partial(category_components.add_or_edit_category, self.__engine, self, category))
             action = self.__delete_category_menu_action.addAction(category.name)
-            action.triggered.connect(partial(gui_actions.delete_category, self.__engine, self, category))
+            action.triggered.connect(partial(category_components.delete_category, self.__engine, self, category))
 
     def get_currently_selected(self) -> QListWidgetItem | None:
         return self.__sidebar_widget.get_currently_selected()
@@ -480,4 +497,3 @@ class LitRPGToolsDesktopGUI(QMainWindow):
 
     def get_should_display_dynamic(self):
         return self.__sidebar_widget.get_should_display_dynamic()
-

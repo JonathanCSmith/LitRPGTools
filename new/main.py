@@ -1,26 +1,37 @@
 import json
+import os.path
 import sys
+from collections import OrderedDict
 from typing import Dict, List
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QProgressDialog
 from indexed import IndexedOrderedDict
 
 from new import search_helper, utils
-from new.data import Character, Entry, Category, Output
+from new.data import Character, Entry, Category, Output, DataFile
 from new.dynamic import DynamicDataStore
+from new.gsheets import GSheetsHandler
 from new.ui.desktop.gui import LitRPGToolsDesktopGUI
-
+from new.utils import handle_old_save_file_loader
 
 """
-TODO: Dynamic data GUI infrastructure
-    Entry:
-        Everything
-        
+TODO: When switching dynamic data view, we forget which tab we are on
+
+XP
+
+level = !${experience}$! / 200 if !${experience}$! <= 1000 else int(math.floor(0.1 * (5 + sqrt((2 * !${experience}$!) + 25))))
+required_experience = (!${level}$! + 1) * 200 if !${level}$! + 1 <= 5 else int(((!${level}$! + 1 * (!${level}$! + 2)) / 2) * 100)
+current_experience_in_this_level = !${experience}$! - (!${level}$! * 200 if !${level}$! <= 5 else int(((level * (!${level}$! + 1)) / 2) * 100))
+
+TODO: Results views (especially outputs) could switch from scroll area to QListView, QAbstractItemModel and QStyledItemDelegate
+
+TODO: Expression creator!
+
 TODO: History log text inject category info etc etc
- 
-TODO: GSheets re-impl, When 'deleting' entries that were previously published, they are 'forgotten' and old references stay around (gsheets). More logical ordering of 'named ranges' for published information - make navigation easier.
-TODO: Test all output routes
- 
+TODO: Test everything by updating existing work
+
+TODO: Test everything
 TODO: Test all of 'current selection tab' controls
 TODO: Do I need to have so much in the update functions?
 TODO: Some sort of sort on entry lists? - not in OUTPUT!
@@ -35,6 +46,7 @@ TODO: Bullet Points and Bold?
 TODO: Switch to Deltas?
 TODO: Versionable Categories?
 TODO: Rarity vs. Name???
+TODO: NamedRanges ordering
 """
 
 
@@ -48,7 +60,7 @@ class LitRPGToolsEngine:
 
         # Permanent Data
         self.__history = list()
-        self.__outputs: Dict[str, Output] = dict()
+        self.__outputs: OrderedDict[str, Output] = OrderedDict()
         self.__characters = IndexedOrderedDict()
         self.__categories = IndexedOrderedDict()
         self.__entries: Dict[str, Entry] = dict()
@@ -57,13 +69,14 @@ class LitRPGToolsEngine:
         self.__character_category_root_entry_cache = dict()  # Character id index -> Category id index -> list of entries (only roots!)
         self.__revision_indices = dict()  # All entries -> revision key (which is actually revision root id but hey-ho)
         self.__revisions = dict()  # revision key (which is actually revision root id) -> ordered list of revisions
-        self.__output_indices_to_entries = dict()  # Output key -> entry key (in correct order!)
-        self.__output_ids_to_indices = dict()
+        self.__entry_id_to_output_cache = dict()  # Map entry to outputs where said entry is the target
 
         # Runtime data
         self.file_save_path = None
         self.__history_index = -1
         self.__value_store = dict()
+        self.__gsheets_credentials_path = None
+        self.__gsheets_handler: GSheetsHandler = None
 
         # Dynamic data store
         self.__dynamic_data_store = DynamicDataStore(self)
@@ -81,31 +94,183 @@ class LitRPGToolsEngine:
         sys.exit(self.runtime.exec())
 
     def save(self):
-        # TODO once we know the file structure better
-        pass
+        # We assume this is already set somewhere as our engine doesn't know about guis (NOTE, doesn't have to be this way. GUIs could implement an interface/mixin)
+        if self.file_save_path is None:
+            return
+        self.__save(self.file_save_path)
 
     def load(self):
-        if self.file_save_path:
-            with open(self.file_save_path, "r") as source_file:
-                json_data = json.load(source_file)
-                if "version" not in json_data:
-                    # data = SerializationData.from_json(json_data)
-                    # TODO Old version handler
+        # We assume this is already set somewhere as our engine doesn't know about guis (NOTE, doesn't have to be this way. GUIs could implement an interface/mixin)
+        if self.file_save_path is None:
+            return
+        self.__load(self.file_save_path)
+
+    def save_autosave(self):
+        self.__save("autosave.litrpg")
+
+    def has_autosave(self):
+        return os.path.isfile("autosave.litrpg")
+
+    def load_autosave(self):
+        self.__load("autosave.litrpg")
+
+    def delete_autosave(self):
+        if os.path.isfile("autosave.litrpg"):
+            os.remove("autosave.litrpg")
+
+    def __save(self, path: str):
+        data_holder = DataFile(self.__characters, self.__categories, self.__history, self.__entries, self.__outputs, self.__gsheets_credentials_path, self.__history_index)
+        jsons = json.dumps(data_holder, default=lambda o: o.__dict__, indent=4)
+        with open(path, "w") as output_file:
+            output_file.write(jsons)
+
+    def __load(self, path: str):
+        with open(path, "r") as source_file:
+            json_data = json.load(source_file)
+            if "file_version" not in json_data:
+                data_handler = handle_old_save_file_loader(json_data)
+                if data_handler is None:
                     return
 
-                elif "version" == "2.0.0":
-                    # TODO: New version handler
+            elif json_data["file_version"] == '2.0.0':
+                data_handler = DataFile.from_json(json_data)
 
-                    return
+        # Unpack the data
+        self.__characters = data_handler.characters
+        self.__categories = data_handler.categories
+        self.__entries = data_handler.entries
+        self.__outputs = data_handler.outputs
+        self.__history = data_handler.history
+        self.__history_index = data_handler.history_index
+        self.__gsheets_credentials_path = data_handler.gsheets_credentials_path
 
-    def get_unassigned_gsheets(self):
-        return list()
+        # Rebuild our caches
+        self.__rebuild_caches()
+        if self.gui is not None:
+            self.gui.handle_update()
+
+        # Setup gsheets
+        if self.__gsheets_credentials_path is not None or self.__gsheets_credentials_path != "":
+            self.load_gsheets_credentials(self.__gsheets_credentials_path)
 
     def load_gsheets_credentials(self, file: str):
-        pass
+        self.__gsheets_handler = GSheetsHandler(self, self.gui, file)
+
+    def get_unassigned_gsheets(self):
+        sheets = self.__gsheets_handler.get_sheets()
+        for output in self.__outputs.values():
+            if output.gsheet_target in sheets:
+                sheets.remove(output.gsheet_target)
+        return sheets
 
     def output_to_gsheets(self):
-        pass
+        self.save()
+
+        # Progress metrics
+        current_work_done = 0
+        worst_case_max_work = len(self.__outputs) * len(self.__entries) * len(self.__characters) * 2 * 2  # 2 is from history AND overview. 2 is from us outputting old version too
+
+        # TODO: This is not implementation independent, if we ever change front ends this will need to be abstracted
+        progress_bar = QProgressDialog("Data output in progress: ", None, 0, worst_case_max_work, self.gui)
+        progress_bar.setWindowTitle("Outputting data.")
+        progress_bar.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_bar.setValue(current_work_done)
+
+        # Loop through outputs
+        last_seen = -1
+        view_cache = dict()  # Because we are printing a rolling window of 2 outputs per output, we may as well cache
+        for output in self.__outputs.values():
+            estimate_work_done = current_work_done
+
+            # Skip bad outputs
+            if output.gsheet_target is None or output.gsheet_target == "" or output.gsheet_target == "NONE":
+                current_work_done += len(self.__entries) * len(self.__characters) * 2 * 2
+                progress_bar.setValue(current_work_done)
+                continue
+
+            # Open up our target
+            try:
+                self.__gsheets_handler.open(output.gsheet_target)
+            except ConnectionAbortedError:
+                self.__gsheets_handler.connect()
+                self.__gsheets_handler.open(output.gsheet_target)
+
+            # Determine our 'output' last entry props
+            target_index = self.get_entry_index_in_history(output.target_entry_id)
+
+            # Operate on a per character basis
+            for character in self.__characters.values():
+
+                # Create a 'view' for our previous output - so that it can easily be referenced from one document
+                if last_seen != -1:
+
+                    # Clear out our old sheets
+                    old_system_sheet = self.__gsheets_handler.create_overview_sheet(character + " Previous View")
+                    old_system_sheet.clear_all()
+
+                    # Loop through on a per category basis
+                    for category_id in self.__characters[character.unique_id].categories:
+                        category = self.__categories[category_id]
+
+                        # Skip those who don't need outputting
+                        if not category.print_to_character_overview:
+                            estimate_work_done += 2
+                            progress_bar.setValue(estimate_work_done)
+                            continue
+
+                        # Get a 'view' of the current state of a category for a character
+                        # It's also guaranteed not to be empty as we skip the first
+                        output_instance_view = view_cache[category_id + "_" + category.unique_id + "_" + str(target_index)]
+
+                        # Write out our data
+                        old_system_sheet.write(self, category, output_instance_view, target_index)
+
+                        # Progress bar update
+                        estimate_work_done += 2
+                        progress_bar.setValue(estimate_work_done)
+
+                # Clear out our current sheet
+                system_sheet = self.__gsheets_handler.create_overview_sheet(character + " Current View")
+                system_sheet.clear_all()
+
+                # Loop through on a per category basis
+                for category_id in self.__characters[character.unique_id].categories:
+                    category = self.__categories[category_id]
+
+                    # Skip those who don't need outputting
+                    if not category.print_to_character_overview:
+                        estimate_work_done += 2
+                        progress_bar.setValue(estimate_work_done)
+                        continue
+
+                    # Get a 'view' of the current state of a category for a character
+                    # It's also guaranteed not to be empty as we skip the first
+                    output_instance_view = self.get_entries_for_character_and_category_at_history_index(character.unique_id, category_id, target_index)
+                    view_cache[category_id + "_" + category.unique_id + "_" + str(target_index)] = output_instance_view
+
+                    # Write out our data
+                    system_sheet.write(self, category, output_instance_view, target_index)
+
+                    # Progress bar update
+                    estimate_work_done += 2
+                    progress_bar.setValue(estimate_work_done)
+
+                # Correct our progressbar estimate
+                current_work_done += len(self.__entries) * 2
+                progress_bar.setValue(current_work_done)
+
+            # Output our history sheet
+            history_sheet = self.__gsheets_handler.create_history_sheet()
+            history_sheet.clear_all()
+            history_sheet.write(self, output)
+
+            # Further correct our progress bar - now you can see how bad the estimate was!
+            current_work_done += len(self.__entries) * len(self.__characters) * 2
+            progress_bar.setValue(current_work_done)
+
+        # If we were successful save and finish!
+        progress_bar.close()
+        self.save()
 
     def get_character_ids(self):
         return self.__characters.keys()
@@ -208,7 +373,7 @@ class LitRPGToolsEngine:
             if rebuild_caches:
                 self.__rebuild_caches()
 
-    def edit_category(self, category: Category, edit_instructions: dict):
+    def edit_category(self, category: Category, edit_instructions: list):
         self.__categories[category.unique_id] = category
 
         # Loop through all the entries associated with a category and update according to the edit instructions
@@ -233,6 +398,7 @@ class LitRPGToolsEngine:
 
         # Update our dynamic data store
         self.__dynamic_data_store.update()
+        self.save_autosave()
 
     def delete_category(self, category: Category, rebuild_caches=True):
         # Get the entries that match this category for deletion
@@ -254,7 +420,7 @@ class LitRPGToolsEngine:
         if rebuild_caches:
             self.__rebuild_caches()
 
-    def get_outputs(self):
+    def get_outputs(self) -> List[Output]:
         return self.__outputs.values()
 
     def get_output_by_id(self, output_id: str) -> Output | None:
@@ -262,66 +428,47 @@ class LitRPGToolsEngine:
             return self.__outputs[output_id]
         return None
 
-    def get_index_of_output_from_id(self, output_id: str) -> int | None:
-        if output_id in self.__output_ids_to_indices:
-            return self.__output_ids_to_indices[output_id]
-        return None
-
-    def get_closest_output_index_up_to_index(self, index: int) -> int:
-        try:
-            return max(k for k in self.__output_indices_to_entries.keys() if k <= index)
-        except ValueError:
-            return -1
-
-    def move_output_up_by_id(self, output_id: str, rebuild_caches=True):
+    def move_output_target_up_by_id(self, output_id: str, rebuild_caches=True):
         if output_id not in self.__outputs:
             return
 
         # Bail if its a bad move
-        index = self.__output_ids_to_indices[output_id]
-        if index == 0:
+        output = self.__outputs[output_id]
+        target_entry_id = output.target_entry_id
+        target_index = self.get_entry_index_in_history(target_entry_id)
+        if target_index == 0:
             return
 
-        # Get the pertinent entries
-        old_entry_id = self.__output_indices_to_entries[index]
-        old_entry = self.get_entry_by_id(old_entry_id)
-        new_entry_id = self.__output_indices_to_entries[index - 1]
-        new_entry = self.get_entry_by_id(new_entry_id)
-
-        # Bail if an output pointer already points to the new entry
-        if new_entry.output_id is not None:
+        # Check if the new entry has an output
+        new_target_entry_id = self.get_entry_id_by_history_index(target_index - 1)
+        if new_target_entry_id in self.__entry_id_to_output_cache:
             return
 
         # Assign
-        new_entry.output_id = old_entry.output_id
-        old_entry.output_id = None
+        output.target_entry_id = new_target_entry_id
 
         # Rebuild caches
         if rebuild_caches:
             self.__rebuild_caches()
 
-    def move_output_down_by_id(self, output_id: str, rebuild_caches=True):
+    def move_output_target_down_by_id(self, output_id: str, rebuild_caches=True):
         if output_id not in self.__outputs:
             return
 
         # Bail if its a bad move
-        index = self.__output_ids_to_indices[output_id]
-        if index == len(self.__history) - 1:
+        output = self.__outputs[output_id]
+        target_entry_id = output.target_entry_id
+        target_index = self.get_entry_index_in_history(target_entry_id)
+        if target_index == len(self.__history) - 1:
             return
 
-        # Get the pertinent entries
-        old_entry_id = self.__output_indices_to_entries[index]
-        old_entry = self.get_entry_by_id(old_entry_id)
-        new_entry_id = self.__output_indices_to_entries[index + 1]
-        new_entry = self.get_entry_by_id(new_entry_id)
-
-        # Bail if an output pointer already points to the new entry
-        if new_entry.output_id is not None:
+        # Check if the new entry has an output
+        new_target_entry_id = self.get_entry_id_by_history_index(target_index + 1)
+        if new_target_entry_id in self.__entry_id_to_output_cache:
             return
 
         # Assign
-        new_entry.output_id = old_entry.output_id
-        old_entry.output_id = None
+        output.target_entry_id = new_target_entry_id
 
         # Rebuild caches
         if rebuild_caches:
@@ -331,17 +478,28 @@ class LitRPGToolsEngine:
         if output.unique_id in self.__outputs:
             return
 
-        entry = self.get_entry_by_id(self.get_most_recent_entry_id())
-        if entry.output_id is not None:
+        # Check if we already have an output targeting this entry
+        target_entry_id = self.get_most_recent_entry_id()
+        if target_entry_id in self.__entry_id_to_output_cache:
             return
 
         # Assign the data
+        output.target_entry_id = target_entry_id
         self.__outputs[output.unique_id] = output
-        entry.output_id = output.unique_id
 
         # Rebuild caches
         if rebuild_caches:
             self.__rebuild_caches()
+
+    def edit_output(self, output: Output):
+        if output.unique_id not in self.__outputs:
+            return
+
+        self.__outputs[output.unique_id] = output
+
+        # Update our dynamic data store
+        self.__dynamic_data_store.update()
+        self.save_autosave()
 
     def delete_output(self, output: Output, rebuild_caches=True):
         if output.unique_id not in self.__outputs:
@@ -393,6 +551,9 @@ class LitRPGToolsEngine:
         return None
 
     def get_entries_for_character_and_category_at_current_history_index(self, character_id: str, category_id: str) -> list | None:
+        return self.get_entries_for_character_and_category_at_history_index(character_id, category_id, self.get_current_history_index())
+
+    def get_entries_for_character_and_category_at_history_index(self, character_id: str, category_id: str, target_index: int) -> list[str] | None:
         if character_id not in self.__character_category_root_entry_cache or category_id not in self.__character_category_root_entry_cache[character_id]:
             print("This really shouldn't happen.")
             return None
@@ -409,7 +570,7 @@ class LitRPGToolsEngine:
                 index = self.get_entry_index_in_history(revision_id)
 
                 # Check their index is less than or equal to the current head
-                if index <= self.get_current_history_index():
+                if index <= target_index:
                     matching_revision = revision_id
                 else:
                     break
@@ -450,6 +611,7 @@ class LitRPGToolsEngine:
 
         # Update our dynamic data store - the real reason this function exists
         self.__dynamic_data_store.update()
+        self.save_autosave()
 
     def move_entry_to(self, entry: Entry, index: int, rebuild_caches=True):
         if entry.parent_id is None and entry.child_id is None:
@@ -535,25 +697,17 @@ class LitRPGToolsEngine:
             child_entry.parent_id = None
 
         # Handle if we have an output tagged to this entry
-        if entry.output_id is not None:
+        if entry.unique_id in self.__entry_id_to_output_cache:
+            output = self.get_output_by_id(self.__entry_id_to_output_cache[entry.unique_id])
             current_index = self.__history.index(entry.unique_id)
-            output = self.get_output_by_id(entry.output_id)
 
-            # If out entry is pos 0 in history, it's safe to destroy
-            if current_index == 0:
-                target_index = 1  # This is essentially saying target the NEW zero, when it becomes appropriate, theoretically we should just delete here as 1 long outputs aren't really worth holding on to
+            # Handle which entry we are attempting to target based on our current position
+            if current_index == 0 or self.__history[current_index - 1] in self.__entry_id_to_output_cache:
+                self.delete_output(output, rebuild_caches=False)
             else:
-                target_index = current_index - 1
-
-            # Get our target information
-            target_entry_id = self.__history[target_index]
-            target_entry = self.get_entry_by_id(target_entry_id)
-
-            # If our target entry has an output, delete as working out where shit should go is broken.
-            if target_entry.output_id is not None:
-                self.delete_output(output, rebuild_caches=False)  # Theoretically we could retry for the current_index + 1 position but 1 long outputs aren't valuable enough to work out the logic
-            else:
-                target_entry.output_id = entry.output_id
+                # Get our target information
+                target_entry_id = self.__history[current_index - 1]
+                output.target_entry_id = target_entry_id
 
         # Handle deletion of entry
         del self.__entries[entry.unique_id]
@@ -612,8 +766,7 @@ class LitRPGToolsEngine:
         self.__revision_indices.clear()
         self.__revisions.clear()
         self.__character_category_root_entry_cache.clear()
-        self.__output_indices_to_entries.clear()
-        self.__output_ids_to_indices.clear()
+        self.__entry_id_to_output_cache.clear()
 
         # Fix up our character category root cache
         for character_id in self.__characters.keys():
@@ -641,6 +794,8 @@ class LitRPGToolsEngine:
                     self.__revision_indices[entry.child_id] = unique_key
                     revisions_list.append(entry.child_id)
                     entry = self.get_entry_by_id(entry.child_id)
+                    if entry is None:
+                        print("WTF")
 
                 # Store revisions
                 self.__revisions[unique_key] = revisions_list
@@ -648,40 +803,56 @@ class LitRPGToolsEngine:
                 # Cache our knowledge regarding an entry's character and category so we don't have to look for them
                 self.__character_category_root_entry_cache[entry.character_id][entry.category_id].append(unique_key)
 
-            # Handle outputs
-            if entry.output_id is not None:
-                self.__output_ids_to_indices[entry.output_id] = i
-                self.__output_indices_to_entries[i] = entry.unique_id
+        # Sort outputs based on their target index
+        for value in sorted(self.__outputs.values(), key=lambda item: self.get_entry_index_in_history(item.target_entry_id)):
+            self.__outputs.move_to_end(value.unique_id)
 
-                # Rebuild output contents
-                output = self.__outputs[entry.output_id]
-                lower_limit = self.get_closest_output_index_up_to_index(i) + 1
-                truth = list()
-                for i2 in reversed(range(lower_limit, i + 1)):
-                    output_member_id = self.__history[i2]
-                    truth.append(output_member_id)
+        # Rebuild output contents in case they changed
+        last_seen = -1
+        for output_id, output in self.__outputs.items():
+            target_id = output.target_entry_id
+            target_index = self.get_entry_index_in_history(target_id)
 
-                    # If we weren't aware of it, store it in ignored
-                    if output_member_id not in output.members and output_member_id not in output.ignored:
-                        output.ignored.append(output_member_id)
+            # Rebuild our output contents
+            valid_entries = list()
+            for output_entry_index in range(last_seen + 1, target_index + 1):
+                output_member_id = self.get_entry_id_by_history_index(output_entry_index)
+                valid_entries.append(output_member_id)
 
-                # Now check for things that we 'remember' but do not exist anymore
-                to_remove = list()
-                for memory_id in output.members:
-                    if memory_id not in truth:
-                        to_remove.append(memory_id)
-                for memory_id in to_remove:
-                    output.members.remove(memory_id)
+                # Determine if the entry is new to us and if so add it to 'ignored'
+                if output_member_id not in output.members and output_member_id not in output.ignored:
+                    output.ignored.append(output_member_id)
 
-                to_remove.clear()
-                for memory_id in output.ignored:
-                    if memory_id not in truth:
-                        to_remove.append(memory_id)
-                for memory_id in to_remove:
-                    output.ignored.remove(memory_id)
+            # Check for entries remembered by the output and remove any that dont exist
+            to_remove = list()
+            for output_member_id in output.members:
+                if output_member_id not in valid_entries:
+                    to_remove.append(output_member_id)
+            for output_member_id in to_remove:
+                output.members.remove(output_member_id)
+            to_remove = list()
+            for output_member_id in output.ignored:
+                if output_member_id not in valid_entries:
+                    to_remove.append(output_member_id)
+            for output_member_id in to_remove:
+                output.ignored.remove(output_member_id)
+
+            # Update our 'last seen' lower bound capture
+            last_seen = target_index
 
         # Dynamic data store
         self.__dynamic_data_store.update()
+
+        # Autosave
+        self.save_autosave()
+
+    def get_dynamic_data_for_current_index_and_character_id(self, character_id: str):
+        return self.__dynamic_data_store.get_dynamic_data_for_character_id_at_index(self.__history_index, character_id)
+
+    def translate_using_dynamic_data_at_index_for_character(self, character_id: str, input_string: str, index: int = -1):
+        if index is None or index == -1:
+            index = self.__history_index
+        return self.__dynamic_data_store.translate(index, character_id, input_string)
 
     def search_all(self, search_string: str) -> list:
         results = []

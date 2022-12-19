@@ -1,33 +1,19 @@
-import abc
 from collections import OrderedDict
 from functools import partial
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QVBoxLayout, QWidget, QHBoxLayout, QLabel, QFormLayout, QPushButton, QLineEdit, QFrame, QScrollArea, QTabWidget, QMessageBox
+from PyQt6.QtWidgets import QVBoxLayout, QWidget, QHBoxLayout, QLabel, QFormLayout, QPushButton, QLineEdit, QFrame, QScrollArea, QTabWidget, QMessageBox, QComboBox, QCheckBox
 
-from new.data import Entry, Category, Output
-from new.ui.desktop import widget_factories, gui_actions
+from new.data import Entry, Category
+from new.ui.desktop.custom_generic_components import Tab
+from new.ui.desktop.dynamic_data_components import DynamicDataTab
+from new.ui.desktop.entry_components import create_entry_form, set_entry_as_head, update_entry, delete_entry_series, delete_entry, duplicate_entry, create_entry_form_with_controls, edit_entry
+from new.ui.desktop.category_components import create_category_form, add_or_edit_category, delete_category
 
 if TYPE_CHECKING:
     from new.main import LitRPGToolsEngine
     from new.ui.desktop.gui import LitRPGToolsDesktopGUI
-
-
-class Tab(QWidget):
-    __metaclass__ = abc.ABCMeta
-
-    def __init__(self, parent: 'LitRPGToolsDesktopGUI', engine: 'LitRPGToolsEngine'):
-        super(Tab, self).__init__()
-        self._parent = parent
-        self._engine = engine
-
-        # All tab props
-        self.setContentsMargins(0, 0, 0, 0)
-
-    @abc.abstractmethod
-    def handle_update(self):
-        pass
 
 
 class SelectedTab(Tab):
@@ -256,25 +242,25 @@ class SelectedTab(Tab):
         self.handle_update()
 
     def __handle_set_as_head_callback(self):
-        gui_actions.set_entry_as_head(self._engine, self._parent, self.__entry)
+        set_entry_as_head(self._engine, self._parent, self.__entry)
 
     def __handle_set_as_selected_callback(self):
         self._parent.set_curently_selected(self.__entry_index)
 
     def __handle_edit_callback(self):
-        gui_actions.add_or_edit_entry(self._engine, self._parent, self.__entry)
+        edit_entry(self._engine, self._parent, self.__entry)
 
     def __handle_update_callback(self):
-        gui_actions.update_entry(self._engine, self._parent, self.__entry)
+        update_entry(self._engine, self._parent, self.__entry)
 
     def __handle_delete_series_callback(self):
-        gui_actions.delete_entry_series(self._engine, self._parent, self.__entry)
+        delete_entry_series(self._engine, self._parent, self.__entry)
 
     def __handle_delete_callback(self):
-        gui_actions.delete_entry(self._engine, self._parent, self.__entry)
+        delete_entry(self._engine, self._parent, self.__entry)
 
     def __handle_duplicate_callback(self):
-        gui_actions.duplicate_entry(self._engine, self._parent, self.__entry)
+        duplicate_entry(self._engine, self._parent, self.__entry)
 
     def handle_update(self):
         # Obtain the currently selected item and bail if there's nothing
@@ -318,7 +304,7 @@ class SelectedTab(Tab):
 
         # Draw our 'current' entry
         entry_index = self._engine.get_entry_index_in_history(current_entry_id)
-        widget_factories.create_entry_form(self.__raw_pane_layout, character, category, entry, entry_index, readonly=True)
+        create_entry_form(self._engine, self.__raw_pane_layout, character, category, entry, entry_index, readonly=True, translate_with_dyanmic_data=self._parent.get_should_display_dynamic())
 
         # Hide the ancestor/descendent panes whent their aren't any
         if entry.parent_id is None:
@@ -344,7 +330,7 @@ class SelectedTab(Tab):
         if target_id is not None:
             ancestor = self._engine.get_entry_by_id(target_id)
             ancestor_index = self._engine.get_entry_index_in_history(target_id)
-            widget_factories.create_entry_form(self.__ancestor_pane_layout, character, category, ancestor, ancestor_index, readonly=True)
+            create_entry_form(self._engine, self.__ancestor_pane_layout, character, category, ancestor, ancestor_index, readonly=True, translate_with_dyanmic_data=self._parent.get_should_display_dynamic())
 
         # Calculate our descendent
         counter = self.__descendent_pointer
@@ -356,7 +342,7 @@ class SelectedTab(Tab):
         if target_id is not None:
             descendent = self._engine.get_entry_by_id(target_id)
             descendent_index = self._engine.get_entry_index_in_history(target_id)
-            widget_factories.create_entry_form(self.__descendent_pane_layout, character, category, descendent, descendent_index, readonly=True)
+            create_entry_form(self._engine, self.__descendent_pane_layout, character, category, descendent, descendent_index, readonly=True, translate_with_dyanmic_data=self._parent.get_should_display_dynamic())
 
 
 class SearchTab(Tab):
@@ -411,7 +397,7 @@ class SearchTab(Tab):
         for result in self.__results:
             # Currently we only support entries and categories.
             if isinstance(result, Entry):
-                widget_factories.create_entry_form_with_controls(self.__results_view_layout, self._engine, self._parent, result)
+                create_entry_form_with_controls(self.__results_view_layout, self._engine, self._parent, result)
 
             elif isinstance(result, Category):
                 self.__draw_category(result)
@@ -425,17 +411,17 @@ class SearchTab(Tab):
         # Form
         category_form = QWidget()
         category_form_layout = QFormLayout()
-        widget_factories.create_category_form(category_form_layout, category)
+        create_category_form(category_form_layout, category)
         category_form.setLayout(category_form_layout)
 
         # Controls
         category_controls = QWidget()
         category_controls_layout = QVBoxLayout()
         category_edit_button = QPushButton("Edit")
-        category_edit_button.clicked.connect(partial(gui_actions.add_or_edit_category, self._engine, self._parent, category))
+        category_edit_button.clicked.connect(partial(add_or_edit_category, self._engine, self._parent, category))
         category_controls_layout.addWidget(category_edit_button)
         category_delete_button = QPushButton("Delete")
-        category_delete_button.clicked.connect(partial(gui_actions.delete_category, self._engine, self._parent, category))
+        category_delete_button.clicked.connect(partial(delete_category, self._engine, self._parent, category))
         category_controls_layout.addWidget(category_delete_button)
         spacer = QWidget()
         category_controls_layout.addWidget(spacer)
@@ -459,138 +445,6 @@ class SearchTab(Tab):
         self.__handle_search_callback()
 
 
-class OutputsTab(Tab):
-    def __init__(self, parent: 'LitRPGToolsDesktopGUI', engine: 'LitRPGToolsEngine'):
-        super(OutputsTab, self).__init__(parent, engine)
-
-        # Results
-        self.__results_view = QWidget()
-        self.__results_view.setStyleSheet("#bordered { border:1px solid rgb(0, 0, 0); }")
-        self.__results_view_layout = QVBoxLayout()
-        self.__results_view_layout.setContentsMargins(0, 0, 0, 0)
-        self.__results_view.setLayout(self.__results_view_layout)
-        self.__results_view_scroll = QScrollArea()
-        self.__results_view_scroll.setWidget(self.__results_view)
-        self.__results_view_scroll.setWidgetResizable(True)
-
-        # Basic layout
-        self.__layout = QVBoxLayout()
-        self.__layout.addWidget(self.__results_view_scroll)
-        self.__layout.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(self.__layout)
-
-    def handle_update(self):
-        # Clear our current results
-        for i in reversed(range(self.__results_view_layout.count())):
-            w = self.__results_view_layout.itemAt(i).widget()
-            self.__results_view_layout.removeWidget(w)
-            w.deleteLater()
-
-        # Bail if there are no views currently
-        results = self._engine.get_outputs()
-        if results is None or len(results) == 0:
-            return
-
-        # Create new entries for the view
-        for output in results:
-            self.__draw_output(output)
-
-    def __draw_output(self, output: Output):
-        history_indices = []
-        for entry in output.members:
-            history_indices.append(str(self._engine.get_entry_index_in_history(entry)))
-
-        # Main widget for the output
-        output_widget = QWidget()
-        output_widget.setStyleSheet("#bordered { border:1px solid rgb(0, 0, 0); }")
-        output_layout = QVBoxLayout()
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_widget.setLayout(output_layout)
-        results_view_scroll = QScrollArea()
-        results_view_scroll.setWidget(output_widget)
-        results_view_scroll.setWidgetResizable(True)
-
-        # Basic props
-        basic_props_widget = QWidget()
-        basic_props_layout = QFormLayout()
-        basic_props_layout.addRow("Output Name:", QLabel(output.name))
-        basic_props_layout.addRow("Output Target Gsheet:", QLabel(output.gsheet_target))
-        basic_props_widget.setLayout(basic_props_widget)
-        output_layout.addWidget(basic_props_widget)
-
-        # Spacer
-        separator = QFrame()
-        separator.setFrameStyle(QFrame.Shape.HLine | QFrame.Shadow.Raised)
-        separator.setLineWidth(3)
-        separator.setStyleSheet("#bordered { border:1px solid rgb(0, 0, 0); }")
-        output_layout.addWidget(separator)
-
-        # Render the entries that are actually included in our output ONLY
-        for current_index, result_id in enumerate(output.members):
-            entry = self._engine.get_entry_by_id(result_id)
-
-            # Details
-            character = self._engine.get_character_by_id(entry.character_id)
-            category = self._engine.get_category_by_id(entry.category_id)
-            entry_index = self._engine.get_entry_index_in_history(entry.unique_id)
-
-            # Form
-            entry_form = QWidget()
-            entry_form_layout = QFormLayout()
-            widget_factories.create_entry_form(entry_form_layout, character, category, entry, entry_index)
-            entry_form.setLayout(entry_form_layout)
-            output_layout.addWidget(entry_form)
-
-        # Controls
-        output_controls = QWidget()
-        output_controls_layout = QVBoxLayout()
-        output_up_button = QPushButton("Move Output End UP")
-        output_up_button.clicked.connect(partial(self.__handle_move_output_up_callback, output))
-        output_controls_layout.addWidget(output_up_button)
-        output_down_button = QPushButton("Move Output End DOWN")
-        output_down_button.clicked.connect(partial(self.__handle_move_output_down_callback, output))
-        output_controls_layout.addWidget(output_down_button)
-        output_edit_button = QPushButton("Edit")
-        output_edit_button.clicked.connect(partial(gui_actions.add_or_edit_output, self._engine, self._parent, output))
-        output_controls_layout.addWidget(output_edit_button)
-        output_delete_button = QPushButton("Delete")
-        output_delete_button.clicked.connect(partial(gui_actions.delete_output, self._engine, self._parent, output))
-        output_controls_layout.addWidget(output_delete_button)
-        spacer = QWidget()
-        output_controls_layout.addWidget(spacer)
-        output_controls_layout.setStretchFactor(spacer, 100)
-        output_controls_layout.setContentsMargins(0, 0, 0, 0)
-        output_controls.setLayout(output_controls_layout)
-
-        # Main container
-        main_widget = QWidget()
-        main_widget_layout = QHBoxLayout()
-        main_widget_layout.addWidget(results_view_scroll)
-        main_widget_layout.setStretchFactor(results_view_scroll, 90)
-        main_widget_layout.addWidget(output_controls)
-        main_widget_layout.setStretchFactor(output_controls, 10)
-        main_widget_layout.setContentsMargins(0, 0, 0, 0)
-        main_widget.setObjectName("bordered")
-        main_widget.setLayout(main_widget_layout)
-        self.__results_view_layout.addWidget(main_widget)
-
-    def __handle_move_output_up_callback(self, output: Output):
-        outcome = QMessageBox.question(self, "Are you sure?", "This will remove an entry from your Output and add it to any subsequent Outputs. Are you certain?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-        if not outcome:
-            return
-
-        self._engine.move_output_up_by_id(output.unique_id)
-        self._parent.handle_update()
-
-    def __handle_move_output_down_callback(self, output: Output):
-        outcome = QMessageBox.question(self, "Are you sure?", "This will remove an entry from any subsequent Output and add it to this Output. Are you certain?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-        if not outcome:
-            return
-
-        self._engine.move_output_down_by_id(output.unique_id)
-        self._parent.handle_update()
-
-
 class CharacterTab(Tab):
     def __init__(self, parent: 'LitRPGToolsDesktopGUI', engine: 'LitRPGToolsEngine', character_id: str):
         super(CharacterTab, self).__init__(parent, engine)
@@ -601,6 +455,7 @@ class CharacterTab(Tab):
         self.__tabbed_view.currentChanged.connect(self.__handle_tab_changed_callback)
 
         # Additional tabs
+        self.__dynamic_data_tab = None
         self.__tabs_cache = OrderedDict()
 
         # Layout
@@ -637,6 +492,7 @@ class CharacterTab(Tab):
                 tab = self.__tabs_cache[category_id]
             else:
                 tab = CategoryTab(self._parent, self._engine, self.__character_id, category_id)
+                self.__tabs_cache[category_id] = tab
             self.__tabbed_view.addTab(tab, category.name)
 
         # Remove redundant cached items
@@ -647,6 +503,11 @@ class CharacterTab(Tab):
         for item in items_to_delete:
             self.__tabs_cache[item].deleteLater()
             del self.__tabs_cache[item]
+
+        # Dynamic data tab
+        if self.__dynamic_data_tab is None:
+            self.__dynamic_data_tab = DynamicDataTab(self._parent, self._engine, self.__character_id)
+        self.__tabbed_view.addTab(self.__dynamic_data_tab, "Dynamic Data")
 
         # Return to selected if possible
         keys = self.__tabs_cache.keys()
@@ -725,7 +586,7 @@ class CategoryTab(Tab):
             if entry.is_disabled and not display_hidden:
                 continue
 
-            widget_factories.create_entry_form_with_controls(self.__results_view_layout, self._engine, self._parent, entry)
+            create_entry_form_with_controls(self.__results_view_layout, self._engine, self._parent, entry)
 
         # Spacer
         spacer = QWidget()
