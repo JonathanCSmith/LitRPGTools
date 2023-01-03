@@ -235,6 +235,9 @@ class DoubleEntryDialog(QDialog):
 
     def __fill_comparison_buttons(self):
         self.__category = self.__engine.get_category_by_id(self.old_entry.category_id)
+        empty_label = QLabel("")
+        # empty_label.setStyleSheet("border: 1px solid black;")
+        self.__data_movement_layout.addRow("Controls", empty_label)
 
         # Loop through our category contents and add our 'editing' buttons for each one.
         for index in range(len(self.__category.contents)):
@@ -243,8 +246,11 @@ class DoubleEntryDialog(QDialog):
             revert_button = QPushButton("Revert to Original")
             revert_button.clicked.connect(partial(self.__handle_revert_callback, index))
             revert_button_container = QWidget()
+            # revert_button_container.setStyleSheet("border: 1px solid black;")
             revert_button_layout = QVBoxLayout()
+            revert_button_layout.setContentsMargins(0, 0, 0, 0)
             revert_button_layout.addWidget(revert_button)
+            revert_button_layout.addStretch()
             revert_button_container.setLayout(revert_button_layout)
             self.__data_movement_layout.addRow(copy_previous_button, revert_button_container)
 
@@ -254,8 +260,11 @@ class DoubleEntryDialog(QDialog):
         revert_button = QPushButton("Revert to Original")
         revert_button.clicked.connect(partial(self.__handle_revert_callback, -1))
         revert_button_container = QWidget()
+        # revert_button_container.setStyleSheet("border: 1px solid black;")
         revert_button_layout = QVBoxLayout()
+        revert_button_layout.setContentsMargins(0, 0, 0, 0)
         revert_button_layout.addWidget(revert_button)
+        revert_button_layout.addStretch()
         revert_button_container.setLayout(revert_button_layout)
         self.__data_movement_layout.addRow(copy_previous_button, revert_button_container)
 
@@ -314,25 +323,51 @@ class DoubleEntryDialog(QDialog):
             self.__old_entry_layout.removeRow(0)
         row_count = self.__new_entry_layout.rowCount()
         for row in range(0, row_count):
-            self.__new_entry_layout.removeRow(row)
+            self.__new_entry_layout.removeRow(0)
 
         # Apply the data from the old entry
         character = self.__engine.get_character_by_id(self.old_entry.character_id)
         old_index = self.__engine.get_entry_index_in_history(self.old_entry.unique_id)
-        self.__old_data = create_entry_form(self.__engine, self.__old_entry_layout, character, self.__category, self.entry, old_index, header=True, readonly=True, translate_with_dyanmic_data=False)
+        self.__old_data = create_entry_form(self.__engine, self.__old_entry_layout, character, self.__category, self.old_entry, old_index, header=True, readonly=True, translate_with_dyanmic_data=False)
         if self.__editing:
             index = self.__engine.get_entry_index_in_history(self.entry.unique_id)
         else:
             index = self.__engine.get_current_history_index()
         self.__current_data = create_entry_form(self.__engine, self.__new_entry_layout, character, self.__category, self.entry, index, header=True, readonly=False, translate_with_dyanmic_data=False)
 
-        # # Make the rows the same height for our buttons
-        row_count = self.__old_entry_layout.rowCount()
+        # Attempt to make the rows the same height for our buttons as the data displays...
+        row_count = self.__old_entry_layout.rowCount() - 1
+        header_size = 14  # Magic number to account for qframelayouts additional borders
         for row in range(0, row_count):
+            # label_item = self.__old_entry_layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
             layout_item = self.__old_entry_layout.itemAt(row, QFormLayout.ItemRole.FieldRole)
-            target = self.__data_movement_layout.itemAt(row, QFormLayout.ItemRole.FieldRole)
-            if layout_item is not None and target is not None:
-                target.widget().setFixedHeight(layout_item.widget().height())
+
+            if row < 3:
+                if layout_item is not None:
+                    header_size += layout_item.sizeHint().height()
+                    #print("Header updated to: " + str(header_size) + " from field: " + label_item.widget().text() + " at loop index: " + str(row))
+                continue
+
+            elif row == 3:
+                target = self.__data_movement_layout.itemAt(0, QFormLayout.ItemRole.LabelRole)
+                if layout_item is not None:
+                    header_size += layout_item.sizeHint().height()
+                if target is not None:
+                    target.widget().setFixedHeight(header_size)
+                    #print("Assigning row 0 in target the height: " + str(header_size) + " at loop index: " + str(row))
+            else:
+                target = self.__data_movement_layout.itemAt(row - 3, QFormLayout.ItemRole.FieldRole)
+                if layout_item is not None and target is not None:
+                    height = layout_item.sizeHint().height()
+
+                    # Different widgets need a little 'fudging' to get them to align correctly
+                    if isinstance(layout_item.widget(), SpellTextEditSingleLine):
+                        height += 0
+                    elif isinstance(layout_item.widget(), SpellTextEdit):
+                        height += 12
+
+                    target.widget().setFixedHeight(height)
+                    #print("Mutating target row: " + str(row - 3) + " with text to have height: " + str(height) + " from " + label_item.widget().text() + " at row index " + str(row))
 
 
 def set_entry_as_head(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', entry: Entry):
@@ -340,7 +375,8 @@ def set_entry_as_head(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGU
         return
 
     # Set this as the current history index
-    engine.set_current_history_index(entry.unique_id)
+    index = engine.get_entry_index_in_history(entry.unique_id)
+    engine.set_current_history_index(index)
     parent.handle_update()
 
 
@@ -366,6 +402,7 @@ def add_entry(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI'):
 
 def edit_entry(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', entry: Entry):
     copy_entry = Entry(entry.character_id, entry.category_id, entry.data.copy(), entry.is_disabled, dynamic_data_operations=entry.dynamic_data_operations)
+    copy_entry.unique_id = entry.unique_id  # TODO: Would it be simpler to just reuse the existing
     if entry.parent_id is not None:
         old_entry = engine.get_entry_by_id(entry.parent_id)
         entry_dialog = DoubleEntryDialog(engine, copy_entry, old_entry, editing=True)
@@ -403,6 +440,7 @@ def edit_entry(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', ent
 
         # Standard editing modal dialog
         copy_entry = Entry(target_entry.character_id, target_entry.category_id, target_entry.data.copy(), target_entry.is_disabled, dynamic_data_operations=target_entry.dynamic_data_operations)
+        copy_entry.unique_id = target_entry.unique_id  # TODO: Would it be simpler to just reuse the existing
         entry_dialog = DoubleEntryDialog(engine, copy_entry, old_entry, editing=True)
         entry_dialog.exec()
         if not entry_dialog.success:
@@ -433,6 +471,7 @@ def update_entry(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', e
     # Get the 'most recent' in the series up to the current index
     current_entry = engine.get_entry_by_id(current_entry_id)
     new_entry = Entry(current_entry.character_id, current_entry.category_id, current_entry.data, current_entry.is_disabled, dynamic_data_operations=entry.dynamic_data_operations, parent_id=current_entry.unique_id, child_id=current_entry.child_id)
+    new_entry.unique_id = current_entry.unique_id  # TODO: Would it be simpler to just reuse the existing
     entry_dialog = DoubleEntryDialog(engine, new_entry, current_entry, editing=False)
     entry_dialog.exec()
     if not entry_dialog.success:
@@ -463,6 +502,7 @@ def update_entry(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', e
 
         # Standard editing modal dialog
         copy_entry = Entry(target_entry.character_id, target_entry.category_id, target_entry.data.copy(), target_entry.is_disabled, dynamic_data_operations=target_entry.dynamic_data_operations)
+        copy_entry.unique_id = target_entry.unique_id  # TODO: Would it be simpler to just reuse the existing
         entry_dialog = DoubleEntryDialog(engine, copy_entry, old_entry, editing=True)
         entry_dialog.exec()
         if not entry_dialog.success:
@@ -527,7 +567,13 @@ def create_entry_form(engine: 'LitRPGToolsEngine', target_layout: QFormLayout, c
     # Add our contents
     callback_for_editables = []
     for index, (key, large_input) in enumerate(category.contents.items()):
-        data = entry.data[index]
+
+        # This try/except allows us to handle entries that haven't been fully initialised yet.
+        try:
+            data = entry.data[index]
+        except IndexError as e:
+            data = ""
+
         if translate_with_dyanmic_data:
             data = engine.translate_using_dynamic_data_at_index_for_character(character.unique_id, data, history_index)
 
@@ -579,9 +625,9 @@ def create_entry_form_with_controls(target_layout, engine: 'LitRPGToolsEngine', 
     set_as_head_button = QPushButton("Set as Current Entry in History")
     set_as_head_button.clicked.connect(partial(set_entry_as_head, engine, parent, entry))
     entry_controls_layout.addWidget(set_as_head_button)
-    set_as_selected_button = QPushButton("Highlight all entries in series.")
-    set_as_selected_button.clicked.connect(partial(parent.set_curently_selected, entry_index))
-    entry_controls_layout.addWidget(set_as_selected_button)
+    # set_as_selected_button = QPushButton("Highlight all entries in series.")
+    # set_as_selected_button.clicked.connect(partial(parent.set_curently_selected, entry_index))
+    # entry_controls_layout.addWidget(set_as_selected_button)
     entry_edit_button = QPushButton("Edit")
     entry_edit_button.clicked.connect(partial(edit_entry, engine, parent, entry))
     entry_controls_layout.addWidget(entry_edit_button)
@@ -597,10 +643,11 @@ def create_entry_form_with_controls(target_layout, engine: 'LitRPGToolsEngine', 
     entry_duplicate_button = QPushButton("Duplicate")
     entry_duplicate_button.clicked.connect(partial(duplicate_entry, engine, parent, entry))
     entry_controls_layout.addWidget(entry_duplicate_button)
-    spacer = QWidget()
-    entry_controls_layout.addWidget(spacer)
-    entry_controls_layout.setStretchFactor(spacer, 100)
-    entry_controls_layout.setContentsMargins(0, 0, 0, 0)
+    entry_controls_layout.addStretch()
+    # spacer = QWidget()
+    # entry_controls_layout.addWidget(spacer)
+    # entry_controls_layout.setStretchFactor(spacer, 100)
+    # entry_controls_layout.setContentsMargins(0, 0, 0, 0)
     entry_controls.setLayout(entry_controls_layout)
 
     # Main container

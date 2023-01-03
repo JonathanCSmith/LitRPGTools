@@ -38,7 +38,7 @@ class SidebarWidget(QWidget):
 
         # New entry button
         self.__new_entry_button = QPushButton("Create Entry at Current History Index")
-        self.__new_entry_button.clicked.connect(partial(entry_components.add_entry, self.__engine, self.__parent, None))
+        self.__new_entry_button.clicked.connect(partial(entry_components.add_entry, self.__engine, self.__parent))
 
         # New view button
         self.__new_view_button = QPushButton("Create View at Current History Index")

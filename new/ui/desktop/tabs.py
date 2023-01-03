@@ -126,8 +126,8 @@ class SelectedTab(Tab):
         # Manipulation Controls
         self.__set_as_head_button = QPushButton("Set As Current Entry in History")
         self.__set_as_head_button.clicked.connect(self.__handle_set_as_head_callback)
-        self.__set_as_selected_button = QPushButton("Highlight all entries in series.")
-        self.__set_as_selected_button.clicked.connect(self.__handle_set_as_selected_callback)
+        # self.__set_as_selected_button = QPushButton("Highlight all entries in series.")
+        # self.__set_as_selected_button.clicked.connect(self.__handle_set_as_selected_callback)
         self.__edit_button = QPushButton("Edit Entry")
         self.__edit_button.clicked.connect(self.__handle_edit_callback)
         self.__update_button = QPushButton("Update Entry At Current History Index")
@@ -142,7 +142,7 @@ class SelectedTab(Tab):
         self.__core_button_group_layout = QVBoxLayout()
         self.__core_button_group_layout.addWidget(QLabel("Core Controls"))
         self.__core_button_group_layout.addWidget(self.__set_as_head_button)
-        self.__core_button_group_layout.addWidget(self.__set_as_selected_button)
+        # self.__core_button_group_layout.addWidget(self.__set_as_selected_button)
         self.__core_button_group_layout.addWidget(self.__edit_button)
         self.__core_button_group_layout.addWidget(self.__update_button)
         self.__core_button_group_layout.addWidget(self.__delete_series_button)
@@ -157,9 +157,10 @@ class SelectedTab(Tab):
         # Control pane
         self.__control_pane = QWidget()
         self.__control_pane_layout = QHBoxLayout()
-        self.__control_pane_spacer_1 = QWidget()
-        self.__control_pane_layout.addWidget(self.__control_pane_spacer_1)
-        self.__control_pane_layout.setStretchFactor(self.__control_pane_spacer_1, 5)
+        self.__control_pane_layout.addStretch()
+        # self.__control_pane_spacer_1 = QWidget()
+        # self.__control_pane_layout.addWidget(self.__control_pane_spacer_1)
+        # self.__control_pane_layout.setStretchFactor(self.__control_pane_spacer_1, 5)
         self.__control_pane_layout.addWidget(self.__core_button_group)
         self.__control_pane_layout.setStretchFactor(self.__core_button_group, 1)
         self.__control_pane_layout.addWidget(self.__move_button_group)
@@ -168,10 +169,11 @@ class SelectedTab(Tab):
         # self.__control_pane_layout.setStretchFactor(self.__ancestor_button_group, 1)
         # self.__control_pane_layout.addWidget(self.__descendent_button_group)
         # self.__control_pane_layout.setStretchFactor(self.__descendent_button_group, 1)
-        self.__control_pane_spacer_2 = QWidget()
-        self.__control_pane_layout.addWidget(self.__control_pane_spacer_2)
-        self.__control_pane_layout.setStretchFactor(self.__control_pane_spacer_2, 5)
-        self.__control_pane_layout.setContentsMargins(0, 0, 0, 0)
+        self.__control_pane_layout.addStretch()
+        # self.__control_pane_spacer_2 = QWidget()
+        # self.__control_pane_layout.addWidget(self.__control_pane_spacer_2)
+        # self.__control_pane_layout.setStretchFactor(self.__control_pane_spacer_2, 5)
+        # self.__control_pane_layout.setContentsMargins(0, 0, 0, 0)
         self.__control_pane.setLayout(self.__control_pane_layout)
 
         # Set the layout
@@ -403,9 +405,10 @@ class SearchTab(Tab):
                 self.__draw_category(result)
 
         # Spacer
-        spacer = QWidget()
-        self.__results_view_layout.addWidget(spacer)
-        self.__results_view_layout.setStretchFactor(spacer, 100)
+        # spacer = QWidget()
+        # self.__results_view_layout.addWidget(spacer)
+        # self.__results_view_layout.setStretchFactor(spacer, 100)
+        self.__results_view_layout.addStretch()
 
     def __draw_category(self, category: Category):
         # Form
@@ -423,10 +426,11 @@ class SearchTab(Tab):
         category_delete_button = QPushButton("Delete")
         category_delete_button.clicked.connect(partial(delete_category, self._engine, self._parent, category))
         category_controls_layout.addWidget(category_delete_button)
-        spacer = QWidget()
-        category_controls_layout.addWidget(spacer)
-        category_controls_layout.setStretchFactor(spacer, 100)
-        category_controls_layout.setContentsMargins(0, 0, 0, 0)
+        # spacer = QWidget()
+        # category_controls_layout.addWidget(spacer)
+        # category_controls_layout.setStretchFactor(spacer, 100)
+        # category_controls_layout.setContentsMargins(0, 0, 0, 0)
+        category_controls_layout.addStretch()
         category_controls.setLayout(category_controls_layout)
 
         # Main container
@@ -589,6 +593,7 @@ class CategoryTab(Tab):
             create_entry_form_with_controls(self.__results_view_layout, self._engine, self._parent, entry)
 
         # Spacer
-        spacer = QWidget()
-        self.__results_view_layout.addWidget(spacer)
-        self.__results_view_layout.setStretchFactor(spacer, 100)
+        # spacer = QWidget()
+        # self.__results_view_layout.addWidget(spacer)
+        # self.__results_view_layout.setStretchFactor(spacer, 100)
+        self.__results_view_layout.addStretch()

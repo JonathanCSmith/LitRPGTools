@@ -1,0 +1,5 @@
+XP Dynamic data testing
+
+level = !${experience}$! / 200 if !${experience}$! <= 1000 else int(math.floor(0.1 * (5 + sqrt((2 * !${experience}$!) + 25))))
+required_experience = (!${level}$! + 1) * 200 if !${level}$! + 1 <= 5 else int(((!${level}$! + 1 * (!${level}$! + 2)) / 2) * 100)
+current_experience_in_this_level = !${experience}$! - (!${level}$! * 200 if !${level}$! <= 5 else int(((level * (!${level}$! + 1)) / 2) * 100))

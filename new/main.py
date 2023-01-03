@@ -16,13 +16,10 @@ from new.ui.desktop.gui import LitRPGToolsDesktopGUI
 from new.utils import handle_old_save_file_loader
 
 """
-TODO: When switching dynamic data view, we forget which tab we are on
+TODO: Changing selected when in output refreshes all the time.
+TODO: Sidebar is context specific?
 
-XP
-
-level = !${experience}$! / 200 if !${experience}$! <= 1000 else int(math.floor(0.1 * (5 + sqrt((2 * !${experience}$!) + 25))))
-required_experience = (!${level}$! + 1) * 200 if !${level}$! + 1 <= 5 else int(((!${level}$! + 1 * (!${level}$! + 2)) / 2) * 100)
-current_experience_in_this_level = !${experience}$! - (!${level}$! * 200 if !${level}$! <= 5 else int(((level * (!${level}$! + 1)) / 2) * 100))
+TODO: OS X saving seems to put it in the wrong directory (uses relative to cwd?)
 
 TODO: Results views (especially outputs) could switch from scroll area to QListView, QAbstractItemModel and QStyledItemDelegate
 
@@ -149,8 +146,9 @@ class LitRPGToolsEngine:
         if self.gui is not None:
             self.gui.handle_update()
 
-        # Setup gsheets
-        if self.__gsheets_credentials_path is not None or self.__gsheets_credentials_path != "":
+        # Setup gsheets - bail if it's not a valid path
+        # TODO: This may be confusing as the user may expect their path to work and it won't (changed locations, shared save etc)
+        if self.__gsheets_credentials_path is not None and self.__gsheets_credentials_path != "" and os.path.isfile(self.__gsheets_credentials_path):
             self.load_gsheets_credentials(self.__gsheets_credentials_path)
 
     def load_gsheets_credentials(self, file: str):
@@ -884,6 +882,7 @@ class LitRPGToolsEngine:
 
 
 if __name__ == '__main__':
+
     # Core
     main = LitRPGToolsEngine()
 

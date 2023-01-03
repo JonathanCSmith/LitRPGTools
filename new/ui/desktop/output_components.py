@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QComboBox, QPushButton, QWidget, QVBoxLayout, QScrollArea, QFormLayout, QCheckBox, QHBoxLayout, QMessageBox, QLabel, QFrame
 
 from new.data import Output, Entry
+from new.ui.desktop import entry_components
 from new.ui.desktop.custom_generic_components import Tab
 from new.ui.desktop.entry_components import create_entry_form
 
@@ -128,10 +129,11 @@ class OutputsTab(Tab):
         output_delete_button = QPushButton("Delete")
         output_delete_button.clicked.connect(partial(delete_output, self._engine, self._parent, output))
         output_controls_layout.addWidget(output_delete_button)
-        spacer = QWidget()
-        output_controls_layout.addWidget(spacer)
-        output_controls_layout.setStretchFactor(spacer, 100)
-        output_controls_layout.setContentsMargins(0, 0, 0, 0)
+        output_controls_layout.addStretch()
+        # spacer = QWidget()
+        # output_controls_layout.addWidget(spacer)
+        # output_controls_layout.setStretchFactor(spacer, 100)
+        # output_controls_layout.setContentsMargins(0, 0, 0, 0)
         output_controls.setLayout(output_controls_layout)
 
         # Main container
@@ -160,6 +162,9 @@ class OutputsTab(Tab):
         # Controls
         entry_controls = QWidget()
         entry_controls_layout = QVBoxLayout()
+        edit_entry_button = QPushButton("Edit Entry")
+        edit_entry_button.clicked.connect(partial(entry_components.edit_entry, self._engine, self._parent, entry))
+        entry_controls_layout.addWidget(entry_controls)
         move_up_button = QPushButton("Move Entry Up")
         if current_index > 0:
             move_up_button.clicked.connect(partial(self.__handle_move_up_callback, entry.unique_id, state))
@@ -172,10 +177,11 @@ class OutputsTab(Tab):
         enabled_checkbox.setChecked(state)
         enabled_checkbox.clicked.connect(partial(self.__handle_entry_changed_state_callback, entry.unique_id, state))
         entry_controls_layout.addWidget(enabled_checkbox)
-        spacer = QWidget()
-        entry_controls_layout.addWidget(spacer)
-        entry_controls_layout.setStretchFactor(spacer, 100)
-        entry_controls_layout.setContentsMargins(0, 0, 0, 0)
+        entry_controls_layout.addStretch()
+        # spacer = QWidget()
+        # entry_controls_layout.addWidget(spacer)
+        # entry_controls_layout.setStretchFactor(spacer, 100)
+        # entry_controls_layout.setContentsMargins(0, 0, 0, 0)
         entry_controls.setLayout(entry_controls_layout)
 
         # Main container
