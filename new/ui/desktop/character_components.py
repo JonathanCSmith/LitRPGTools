@@ -1,15 +1,162 @@
+from collections import OrderedDict
 from functools import partial
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QPushButton, QFormLayout, QTableWidgetItem, QHeaderView, QMessageBox, QComboBox
+from PyQt6.QtCore import Qt, QSignalBlocker
+from PyQt6.QtGui import QDropEvent
+from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QPushButton, QFormLayout, QTableWidgetItem, QHeaderView, QMessageBox, QComboBox, QTabWidget, QVBoxLayout, QWidget, QCheckBox
 
 from new.data import Character
+from new.ui.desktop.category_components import CategoryTab
 from new.ui.desktop.custom_generic_components import add_checkbox_in_table_at
+from new.ui.desktop.dynamic_data_components import DynamicDataTab
 
 if TYPE_CHECKING:
     from new.main import LitRPGToolsEngine
     from new.ui.desktop.gui import LitRPGToolsDesktopGUI
+
+
+class CharacterTab(QWidget):
+    def __init__(self, parent: 'LitRPGToolsDesktopGUI', engine: 'LitRPGToolsEngine', character_id: str):
+        super().__init__()
+        self._parent = parent
+        self._engine = engine
+        self.character_id = character_id
+
+        # Content
+        self.__tabbed_view = QTabWidget()
+        self.__tabbed_view.currentChanged.connect(self.__handle_tab_changed_callback)
+
+        # Additional tabs
+        self.__character_configuration_tab = CharacterConfigurationTab(self, self._engine)
+        self.__dynamic_data_tab = DynamicDataTab(self._engine, self.character_id)
+        self.__tabs_cache = OrderedDict()
+
+        # Tab bar props
+        self.__tabbed_view.tabBar().tabBarClicked.connect(self.__handle_tab_clicked_callback)
+        self.__tabbed_view.tabBar().tabMoved.connect(self.__handle_tab_moved_callback)
+
+        # Layout
+        self.__layout = QVBoxLayout()
+        self.__layout.addWidget(self.__tabbed_view)
+        self.__layout.setContentsMargins(0, 0, 0, 0)
+        self.__layout.setStretch(0, 100000)
+        self.setLayout(self.__layout)
+
+    def __handle_tab_changed_callback(self):
+        tabbed_widget = self.__tabbed_view.currentWidget()
+        if tabbed_widget is None:
+            return
+        tabbed_widget.draw()
+
+    def __handle_tab_clicked_callback(self, index):
+        if index > 1:
+            self.__tabbed_view.tabBar().setMovable(True)
+        else:
+            self.__tabbed_view.tabBar().setMovable(False)
+
+    def __handle_tab_moved_callback(self, target_index, source_index):
+        if target_index < 2:
+            with QSignalBlocker(self.__tabbed_view.tabBar()) as blocker:
+                self.__tabbed_view.tabBar().moveTab(source_index, target_index)
+
+        elif source_index > 1 and target_index > 1:
+            self._engine.move_category_id_by_index_to_index(self.character_id, source_index - 2, target_index - 2)
+
+    def draw(self):
+        current_tab_index = self.__tabbed_view.currentIndex()
+        current_tab_text = self.__tabbed_view.tabText(current_tab_index)
+
+        # Block notifications
+        self.__tabbed_view.blockSignals(True)
+
+        # Refresh our tabs and store them in a list for comparison
+        self.__tabbed_view.clear()
+
+        # Fixed tabs
+        self.__tabbed_view.addTab(self.__character_configuration_tab, "Character Categories")
+        self.__tabbed_view.addTab(self.__dynamic_data_tab, "Dynamic Data Store")
+
+        # Conditional addition of categories
+        character = self._engine.get_character_by_id(self.character_id)
+        category_ids = character.categories
+        if category_ids is None:
+            return
+
+        # Work through our available categories and add
+        for category_id in category_ids:
+            category = self._engine.get_category_by_id(category_id)
+
+            # Retrieve cached tab and add to tabs
+            if category_id in self.__tabs_cache:
+                tab = self.__tabs_cache[category_id]
+            else:
+                tab = CategoryTab(self, self._engine, category_id)
+                self.__tabs_cache[category_id] = tab
+            self.__tabbed_view.addTab(tab, category.name)
+
+        # Remove redundant cached items
+        items_to_delete = []
+        for category_id in self.__tabs_cache.keys():
+            if category_id not in category_ids:
+                items_to_delete.append(category_id)
+        for item in items_to_delete:
+            self.__tabs_cache[item].deleteLater()
+            del self.__tabs_cache[item]
+
+        # Return to selected if possible
+        keys = ["Character Categories", "Dynamic Data Store", self.__tabs_cache.keys()]
+        if current_tab_text in keys:
+            index = keys.index(current_tab_text)
+            self.__tabbed_view.setCurrentIndex(index)
+
+        # Return signals
+        self.__tabbed_view.blockSignals(False)
+
+        # defer update to tab
+        w = self.__tabbed_view.currentWidget()
+        if w is not None:
+            w.draw()
+
+
+class CharacterConfigurationTab(QWidget):
+    def __init__(self, parent: CharacterTab, engine: 'LitRPGToolsEngine'):
+        super().__init__()
+        self._parent = parent
+        self._engine = engine
+
+        # Form layout
+        self.__layout = QFormLayout()
+        self.setLayout(self.__layout)
+
+    def draw(self):
+        character = self._engine.get_character_by_id(self._parent.character_id)
+        if character is None:
+            return
+
+        # Remove any existing
+        for index in range(self.__layout.rowCount()):
+            self.__layout.removeRow(0)
+
+        # Add in fresh
+        categories = self._engine.get_categories()
+        for category in categories:
+            check_box = QCheckBox()
+            state = category.unique_id in character.categories
+            check_box.setChecked(state)
+            check_box.clicked.connect(partial(self.__handle_category_box_callback, category.unique_id, state))
+            self.__layout.addRow(category.name, check_box)
+
+    def __handle_category_box_callback(self, category_id: str, current_state: bool):
+        character = self._engine.get_character_by_id(self._parent.character_id)
+        if current_state:
+            character.categories.remove(category_id)
+        else:
+            character.categories.append(category_id)
+        self._engine.edit_character(character)
+
+        # Call parent so that the tabs can be updated
+        self._parent.draw()
 
 
 class CharacterDialog(QDialog):
@@ -24,6 +171,7 @@ class CharacterDialog(QDialog):
             self.setWindowTitle("New Character")
         else:
             self.setWindowTitle("Edit Character")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMinMaxButtonsHint)
 
         # Form content
         self.__character_name_field = QLineEdit()
@@ -131,7 +279,7 @@ class CharacterSelectorDialog(QDialog):
         self.close()
 
 
-def add_or_edit_character(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', character: Character | None):
+def add_or_edit_character(engine: 'LitRPGToolsEngine', character: Character | None):
     # Build a dialog to edit the current character information
     edit_character_dialog = CharacterDialog(engine, character=character)
     edit_character_dialog.exec()
@@ -142,8 +290,8 @@ def add_or_edit_character(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDeskt
 
     # Check that the name is sensible
     character_name = edit_character_dialog.get_character_name()
-    if not character_name[:1].isalpha():
-        return
+    if not character_name[:1].isalpha() or character_name == "History" or character_name == "Search" or character_name == "Outputs":
+        return None
 
     # Add the character in our engine
     if character is None:
@@ -153,11 +301,11 @@ def add_or_edit_character(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDeskt
         new_character = Character(name=character_name, categories=edit_character_dialog.categories)
         new_character.unique_id = character.unique_id
         engine.edit_character(new_character)
+        character = new_character
 
-    # Trigger a refresh of the UI
-    parent.handle_update()
+    return character
 
 
-def delete_character(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', character: Character):
+def delete_character(engine: 'LitRPGToolsEngine', character: Character):
+    # TODO: Some sort of validation if this is okay?
     engine.delete_character(character)
-    parent.handle_update()

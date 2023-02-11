@@ -16,18 +16,41 @@ class Operation(Data):
         self.operation = operation
         self.dependencies = dependencies
 
+    def __str__(self):
+        return "Operation (" + self.key + "): " + self.operation_type + " using string: " + self.operation
+
+    def __repr__(self):
+        return "Operation (" + self.key + "): " + self.operation_type + " using string: " + self.operation
+
 
 class DynamicDataStore:
     def __init__(self, engine: 'LitRPGToolsEngine'):
         self.__engine = engine
         self.__value_store: Dict[str, Dict[int, Dict[str, Any]]] = dict()
 
+        self.__debug = True
+
     def get_dynamic_data_for_character_id_at_index(self, index: int, character_id: str):
+        if character_id not in self.__value_store:
+            return None
+        if index not in self.__value_store[character_id]:
+            return None
+
         return self.__value_store[character_id][index]
 
-    def translate(self, index: int, character_id: str, input_string: str) -> str:
+    def translate(self, index: int, character_id: str, entry_id: str, input_string: str) -> str:
+        # Resolve pointers scoped to this entry series
+        root_entry_id = self.__engine.get_root_entry_id_in_series(entry_id)
+        input_string = self.__resolve_entry_scoped_pointers(input_string, root_entry_id)
+
+        # Extract all keys
         keys = self.__find_special_variables(input_string)
+
+        # Translate
         return self.__translate_with_keys_for_entry(index, character_id, input_string, keys)
+
+    def __resolve_entry_scoped_pointers(self, text: str, entry_id: str) -> str:
+        return text.replace("$${ID}$$", entry_id)
 
     def __find_special_variables(self, value: str):
         pattern = "!\${([^(}\$!)]*)}\$!"
@@ -57,9 +80,13 @@ class DynamicDataStore:
         # Loop through entries historically, use to cache dynamic data views?
         history_ids = self.__engine.get_history()
         rolling_window = dict()
+        is_last = False
         for index, entry_id in enumerate(history_ids):
             entry = self.__engine.get_entry_by_id(entry_id)
             category = self.__engine.get_category_by_id(entry.category_id)
+
+            if index == len(history_ids) - 1:
+                is_last = True
 
             # Entries are character specific
             character_id = entry.character_id
@@ -108,8 +135,12 @@ class DynamicDataStore:
 
             # Now we loop through our rolling window's contents, evaluate if an entry is the most up to date, if not earmark for discarding and continue, otherwise process its dynamic data operations
             to_remove = list()
-            for rolling_window_entry_id in rolling_window[character_id]:
+            for index, rolling_window_entry_id in enumerate(rolling_window[character_id]):
+                root_entry_id = self.__engine.get_root_entry_id_in_series(rolling_window_entry_id)
                 most_current_entry_id = self.__engine.get_most_recent_entry_id_in_series_up_to_index(rolling_window_entry_id, index)
+
+                if is_last and self.__debug:
+                    print("Rolling window index: " + str(index))
 
                 # There is likely an entry down the line which is more recent so we can skip this and make sure we don't have to look it up again
                 if rolling_window_entry_id != most_current_entry_id:
@@ -118,9 +149,14 @@ class DynamicDataStore:
 
                 # Get the entry in question
                 rolling_window_entry = self.__engine.get_entry_by_id(rolling_window_entry_id)
+                rolling_window_category = self.__engine.get_category_by_id(rolling_window_entry.category_id)
 
                 # Build a list of our modifications and record dependencies for this entry's category
-                for dynamic_data_key, (operation_type, operation_string) in category.dynamic_data_operation_templates.items():
+                for dynamic_data_key, (operation_type, operation_string) in rolling_window_category.dynamic_data_operation_templates.items():
+                    # Mutate key if special substrings were included (allows for entry specific isolation of keys)
+                    dynamic_data_key = self.__resolve_entry_scoped_pointers(dynamic_data_key, root_entry_id)
+                    operation_string = self.__resolve_entry_scoped_pointers(operation_string, root_entry_id)
+
                     # Infer our dependencies, these need to be 'static' in order for us to evaluate the modification
                     dependencies = self.__find_special_variables(operation_string)
                     operation = Operation(dynamic_data_key, operation_type, operation_string, dependencies)
@@ -137,6 +173,10 @@ class DynamicDataStore:
 
                 # Build a list of our modifications and record  dependencies for the entry
                 for dynamic_data_key, (operation_type, operation_string) in rolling_window_entry.dynamic_data_operations.items():
+                    # Mutate key if special substrings were included (allows for entry specific isolation of keys)
+                    dynamic_data_key = self.__resolve_entry_scoped_pointers(dynamic_data_key, root_entry_id)
+                    operation_string = self.__resolve_entry_scoped_pointers(operation_string, root_entry_id)
+
                     # Infer our dependencies, these need to be 'static' in order for us to evaluate the modification
                     dependencies = self.__find_special_variables(operation_string)
                     operation = Operation(dynamic_data_key, operation_type, operation_string, dependencies)
@@ -215,9 +255,29 @@ class DynamicDataStore:
 
     def __perform_operation_for_entry_at_index(self, index: int, entry: Entry, operation: Operation):
         try:
-            # All of our dependencies are theoretically resolved, so now we should evaluate our expression
             operation_string = self.__translate_with_keys_for_entry(index, entry.character_id, operation.operation, operation.dependencies)
+        except Exception as ex:
+            print("Unable to translate all keys for operation: " + str(operation))
+            return
+
+        try:
             outcome = eval(operation_string)
+
+            # TODO: Catch likely candidates (e.g. '[string]') and assume we intended it a string literal?
+
+        except Exception as ex:
+            print("Unable to eval operation string: " + operation_string + " for operation: " + str(operation))
+            outcome = operation_string
+
+        try:
+            # Defaults
+            if operation.key not in self.__value_store[entry.character_id][index]:
+                if operation.operation_type.endswith("STRING"):
+                    self.__value_store[entry.character_id][index][operation.key] = ""
+                elif operation.operation_type.endswith("INTEGER"):
+                    self.__value_store[entry.character_id][index][operation.key] = 0
+                elif operation.operation_type.endswith("FLOAT"):
+                    self.__value_store[entry.character_id][index][operation.key] = 0.0
 
             # Match by operation type
             match operation.operation_type:
@@ -258,7 +318,7 @@ class DynamicDataStore:
                     raise Exception("INVALID OPERATION TYPE")
 
         except Exception as ex:
-            print("Unable to perform operation of key: " + operation.key + " for entry: " + entry.unique_id + " for character: " + entry.character_id + " at index: " + str(index) + " with source operation: " + operation.operation + ". Reported exception was: " + str(ex))
+            print("Unable to perform operation action for operation: " + str(operation))
 
     def __translate_with_keys_for_entry(self, index: int, character_id: str, input_string: str, keys: List[str]) -> str:
         for key in keys:

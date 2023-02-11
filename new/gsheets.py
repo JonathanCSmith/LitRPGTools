@@ -38,7 +38,7 @@ class OverviewSheet:
                 if entry_data == "":
                     continue
 
-                data_to_write.append([content_header, engine.translate_using_dynamic_data_at_index_for_character(entry.character_id, entry_data, current_index)])
+                data_to_write.append([content_header, engine.translate_using_dynamic_data_at_index_for_character(entry.character_id, entry_data, entry_id, current_index)])
             data_to_write.append(["", ""])
         self.write_block(data_to_write)
 
@@ -86,6 +86,7 @@ class HistorySheet:
     def write(self, engine: 'LitRPGToolsEngine', output: Output):
         named_range_pointers = list()
         output_counter = 0
+        final_index = engine.get_entry_index_in_history(output.members[-1])
         for entry_id in output.members:
             entry = engine.get_entry_by_id(entry_id)
             entry_index = engine.get_entry_index_in_history(entry_id)
@@ -108,27 +109,30 @@ class HistorySheet:
                 if entry_data == "":
                     continue
 
-                data_to_write.append([content_header, engine.translate_using_dynamic_data_at_index_for_character(entry.character_id, entry_data, entry_index)])
+                data_to_write.append([content_header, engine.translate_using_dynamic_data_at_index_for_character(entry.character_id, entry_data, entry_id, final_index)])
 
             # Write data block with index and ensure we 'save' it as a named range to preserve sheet -> doc references
             named_range_pointer = self.write_named_range(entry_id, data_to_write)
             named_range_pointers.append(named_range_pointer)
 
             # Blank
-            self.write_block(["", ""])
+            self.write_block([["", ""]])
             output_counter += 1
 
         # Handle named ranges clean up - this can happen when an entry was deleted in the UI but printed previously to an output
         current_named_ranges = self.worksheet.get_named_ranges()
         for current_named_range in current_named_ranges:
-            if current_named_range not in named_range_pointers:
-                self.worksheet.delete_named_range(current_named_range)
+            if current_named_range.name not in named_range_pointers:
+                self.worksheet.delete_named_range(current_named_range.name)
 
     def write_named_range(self, entry_id: str, data_to_write: list[list[str]]):
         start, end = self.write_block(data_to_write)
 
+        # Adjust end because it's a lier
+
         # Sanitize name
         name = re.sub(r'[^a-zA-Z0-9 \n\.]', '_', entry_id).replace(" ", "_")
+        name = "id_" + name
 
         # Check to see if the named range already exists, if so, adjust
         try:
@@ -165,7 +169,7 @@ class HistorySheet:
         # Range pointers
         start = "A" + str(self.current_write_index)
         self.current_write_index += row_count
-        end = "B" + str(self.current_write_index)
+        end = "B" + str(self.current_write_index - 1)
 
         # Output
         self.worksheet.update_values(start + ":" + end, data_to_write)

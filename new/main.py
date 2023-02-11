@@ -16,12 +16,18 @@ from new.ui.desktop.gui import LitRPGToolsDesktopGUI
 from new.utils import handle_old_save_file_loader
 
 """
-TODO: Changing selected when in output refreshes all the time.
-TODO: Sidebar is context specific?
+TODO: Maximise button on dialogs
+TODO: No assign entries for dynamic data? Just have defaults - save's a lot of thought...
+TODO: Search shouldn't be tokenised??? 
+TODO: Enter = run search
+TODO: Catch likely candidates (e.g. '[string]') and assume we intended it a string literal?
+
+TODO: Fill in options (i.e. for create entry) when there is only one choice
+TODO: Create entry everywhere with context applied?
+TODO: Is disabled should be hidden???
+TODO: Autosave to remember default save path?
 
 TODO: OS X saving seems to put it in the wrong directory (uses relative to cwd?)
-
-TODO: Results views (especially outputs) could switch from scroll area to QListView, QAbstractItemModel and QStyledItemDelegate
 
 TODO: Expression creator!
 
@@ -29,11 +35,8 @@ TODO: History log text inject category info etc etc
 TODO: Test everything by updating existing work
 
 TODO: Test everything
-TODO: Test all of 'current selection tab' controls
 TODO: Do I need to have so much in the update functions?
-TODO: Some sort of sort on entry lists? - not in OUTPUT!
 TODO: Validate 'current selection' and 'head' behaviour for all actions
-TODO: Selectable text everywhere for better clipboarding
 TODO: Better notifications when things go wrong
 TODO: Help tooltip for creation & update text special stuff (i.e. any token stuff I add in)
 
@@ -42,7 +45,6 @@ TODO: Mobile?
 TODO: Bullet Points and Bold?
 TODO: Switch to Deltas?
 TODO: Versionable Categories?
-TODO: Rarity vs. Name???
 TODO: NamedRanges ordering
 """
 
@@ -139,22 +141,26 @@ class LitRPGToolsEngine:
         self.__outputs = data_handler.outputs
         self.__history = data_handler.history
         self.__history_index = data_handler.history_index
-        self.__gsheets_credentials_path = data_handler.gsheets_credentials_path
 
         # Rebuild our caches
         self.__rebuild_caches()
         if self.gui is not None:
-            self.gui.handle_update()
+            self.gui.draw()
 
         # Setup gsheets - bail if it's not a valid path
         # TODO: This may be confusing as the user may expect their path to work and it won't (changed locations, shared save etc)
-        if self.__gsheets_credentials_path is not None and self.__gsheets_credentials_path != "" and os.path.isfile(self.__gsheets_credentials_path):
-            self.load_gsheets_credentials(self.__gsheets_credentials_path)
+        gsheets_credentials = data_handler.gsheets_credentials_path
+        if gsheets_credentials is not None and gsheets_credentials != "" and os.path.isfile(gsheets_credentials):
+            self.load_gsheets_credentials(gsheets_credentials)
 
     def load_gsheets_credentials(self, file: str):
         self.__gsheets_handler = GSheetsHandler(self, self.gui, file)
+        self.__gsheets_credentials_path = file
 
     def get_unassigned_gsheets(self):
+        if self.__gsheets_handler is None:
+            return None
+
         sheets = self.__gsheets_handler.get_sheets()
         for output in self.__outputs.values():
             if output.gsheet_target in sheets:
@@ -228,7 +234,7 @@ class LitRPGToolsEngine:
                         progress_bar.setValue(estimate_work_done)
 
                 # Clear out our current sheet
-                system_sheet = self.__gsheets_handler.create_overview_sheet(character + " Current View")
+                system_sheet = self.__gsheets_handler.create_overview_sheet(character.name + " Current View")
                 system_sheet.clear_all()
 
                 # Loop through on a per category basis
@@ -281,15 +287,8 @@ class LitRPGToolsEngine:
             return self.__characters[character_id]
         return None
 
-    def move_character_id_left(self, character_id: str):
-        out = utils.move_item_in_indexedordererdict_by(self.__characters, character_id, -1)
-        if out is not None:
-            self.__characters = out
-
-    def move_character_id_right(self, character_id: str):
-        out = utils.move_item_in_indexedordererdict_by(self.__characters, character_id, 1)
-        if out is not None:
-            self.__characters = out
+    def move_character_id_by_index_to_index(self, from_index, to_index):
+        self.__characters = utils.move_item_in_iod_by_index_to_position(self.__characters, from_index, to_index)
 
     def add_character(self, character: Character, rebuild_caches=True):
         if character.unique_id not in self.__characters:
@@ -343,25 +342,17 @@ class LitRPGToolsEngine:
     def get_categories(self) -> List[Category]:
         return self.__categories.values()
 
-    def get_categories_for_character_id(self, character_id: str) -> list | None:
-        if character_id in self.__character_category_root_entry_cache:
-            return self.__character_category_root_entry_cache[character_id].keys()
-        return None
-
     def get_category_by_id(self, category_id: str) -> Category | None:
         if category_id in self.__categories:
             return self.__categories[category_id]
         return None
 
-    def move_category_id_left(self, category_id: str):
-        out = utils.move_item_in_indexedordererdict_by(self.__categories, category_id, -1)
-        if out is not None:
-            self.__categories = out
+    def move_category_id_by_index_to_index(self, character_id: str, from_index, to_index):
+        if character_id not in self.__characters:
+            return
 
-    def move_category_id_right(self, category_id: str):
-        out = utils.move_item_in_indexedordererdict_by(self.__categories, category_id, 1)
-        if out is not None:
-            self.__categories = out
+        character = self.get_character_by_id(character_id)
+        character.categories = utils.move_item_in_list_by_index_to_position(character.categories, from_index, to_index)
 
     def add_category(self, category: Category, rebuild_caches=True):
         if category not in self.__categories:
@@ -376,6 +367,9 @@ class LitRPGToolsEngine:
 
         # Loop through all the entries associated with a category and update according to the edit instructions
         for character_id in self.__character_category_root_entry_cache:
+            if category.unique_id not in self.__characters[character_id].categories:
+                continue
+
             root_entries = self.__character_category_root_entry_cache[character_id][category.unique_id]
             for root_entry_id in root_entries:
                 for history_entry_id in self.__revisions[root_entry_id]:
@@ -521,6 +515,17 @@ class LitRPGToolsEngine:
     def get_most_recent_entry_id(self):
         return self.__history[self.get_current_history_index()]
 
+    def get_root_entry_id_in_series(self, entry_id: str):
+        if entry_id not in self.__entries:
+            return None
+
+        revisions = self.get_entry_revisions_for_id(entry_id)
+        if revisions is None:
+            print("Badly formed revisions? Need to rebuild caches somewhere?")
+            return None
+
+        return revisions[0]
+
     def get_most_recent_entry_id_in_series(self, entry_id: str):
         return self.get_most_recent_entry_id_in_series_up_to_index(entry_id, self.get_current_history_index())
 
@@ -583,7 +588,9 @@ class LitRPGToolsEngine:
         return self.__revisions.keys()
 
     def add_entry_at_head(self, entry: Entry, rebuild_caches=True):
-        self.__add_entry_at(entry, self.get_current_history_index() + 1, rebuild_caches=rebuild_caches)
+        target_index = self.get_current_history_index() + 1
+        self.__add_entry_at(entry, target_index, rebuild_caches=False)
+        self.set_current_history_index(target_index)
 
     def __add_entry_at(self, entry: Entry, index: int, rebuild_caches=True):
         if entry.unique_id not in self.__entries:
@@ -743,7 +750,7 @@ class LitRPGToolsEngine:
         self.__history.insert(index, entry_id)
 
         # Handle where our head pointer goes - we only need to change when our point of insertion is equal to or above the current head (visually according to list entries)
-        if index <= self.__history_index + 1:
+        if index <= self.__history_index:
             self.set_current_history_index(index, rebuild_caches=rebuild_caches)
         elif rebuild_caches:
             self.__rebuild_caches()
@@ -847,10 +854,10 @@ class LitRPGToolsEngine:
     def get_dynamic_data_for_current_index_and_character_id(self, character_id: str):
         return self.__dynamic_data_store.get_dynamic_data_for_character_id_at_index(self.__history_index, character_id)
 
-    def translate_using_dynamic_data_at_index_for_character(self, character_id: str, input_string: str, index: int = -1):
+    def translate_using_dynamic_data_at_index_for_character(self, character_id: str, input_string: str, entry_id, index: int = -1):
         if index is None or index == -1:
             index = self.__history_index
-        return self.__dynamic_data_store.translate(index, character_id, input_string)
+        return self.__dynamic_data_store.translate(index, character_id, entry_id, input_string)
 
     def search_all(self, search_string: str) -> list:
         results = []
