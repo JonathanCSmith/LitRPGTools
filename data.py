@@ -4,6 +4,8 @@ from typing import List, Dict, Tuple, Any
 
 from indexed import IndexedOrderedDict
 
+FILE_VERSION = "2.0.1"
+
 
 class Data:
     def __init__(self, unique_id: str = None):
@@ -40,8 +42,8 @@ class Category(Data):
             print_to_character_overview: bool = False,
             can_update: bool = False,
             single_entry_only: bool = False,
-            dynamic_data_operations: Dict[str, Tuple[str, str]] = None,
-            dynamic_data_operation_templates: Dict[str, Tuple[str, str]] = None,
+            dynamic_data_operations: Dict[str, Tuple[str, str, str]] = None,
+            dynamic_data_operation_templates: Dict[str, Tuple[str, str, str]] = None,
             unique_id: str = None):
         super(Category, self).__init__(unique_id)
 
@@ -53,11 +55,11 @@ class Category(Data):
         self.can_update = can_update
         self.single_entry_only = single_entry_only
         if dynamic_data_operations is None:
-            dynamic_data_operations: Dict[str, Tuple[str, str]] = dict()
-        self.dynamic_data_operations: Dict[str, Tuple[str, str]] = dynamic_data_operations
+            dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dict()
+        self.dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dynamic_data_operations
         if dynamic_data_operation_templates is None:
-            dynamic_data_operation_templates: Dict[str, Tuple[str, str]] = dict()
-        self.dynamic_data_operation_templates: Dict[str, Tuple[str, str]] = dynamic_data_operation_templates
+            dynamic_data_operation_templates: Dict[str, Tuple[str, bool, str]] = dict()
+        self.dynamic_data_operation_templates: Dict[str, Tuple[str, bool, str]] = dynamic_data_operation_templates
 
 
 class Output(Data):
@@ -77,7 +79,7 @@ class Entry(Data):
             category_id: str,
             data: list,
             is_disabled: bool = False,
-            dynamic_data_operations: Dict[str, Tuple[str, str]] = None,
+            dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = None,
             unique_id: str = None,
             parent_id: str = None,
             child_id: str = None):
@@ -89,8 +91,8 @@ class Entry(Data):
         self.parent_id = parent_id
         self.child_id = child_id
         if dynamic_data_operations is None:
-            dynamic_data_operations: Dict[str, Tuple[str, str]] = dict()
-        self.dynamic_data_operations: Dict[str, Tuple[str, str]] = dynamic_data_operations
+            dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dict()
+        self.dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dynamic_data_operations
 
 
 class DataFile:
@@ -103,7 +105,7 @@ class DataFile:
             outputs: Dict[str, Output],
             gsheets_credentials_path: str,
             history_index: int,
-            file_version: str = "2.0.0"):
+            file_version: str = FILE_VERSION):
         self.file_version = file_version
         self.gsheets_credentials_path = gsheets_credentials_path
         self.history_index = history_index
@@ -115,6 +117,10 @@ class DataFile:
 
     @classmethod
     def from_json(cls, json_data):
+        # Old data handling
+        if json_data["file_version"] != FILE_VERSION:
+            json_data = DataFile.__convert_old_data(json_data)
+
         characters = IndexedOrderedDict()
         for k, v in json_data["characters"].items():
             character = Character.from_json(v)
@@ -142,5 +148,32 @@ class DataFile:
             entries=entries,
             outputs=outputs,
             gsheets_credentials_path=json_data["gsheets_credentials_path"],
-            history_index=json_data["history_index"],
-            file_version=json_data["file_version"])
+            history_index=json_data["history_index"])
+
+    @classmethod
+    def __convert_old_data(cls, json_data):
+        # Introduction of multiple scopes for dynamic data
+        if json_data["file_version"] == "2.0.0":
+            for category in json_data["categories"].values():
+                for dynamic_data_key in category["dynamic_data_operations"]:
+                    if category["dynamic_data_operations"][dynamic_data_key][1]:
+                        category["dynamic_data_operations"][dynamic_data_key][1] = "FUNCTION"
+
+                    else:
+                        category["dynamic_data_operations"][dynamic_data_key][1] = "INSTANT"
+
+                for dynamic_data_key in category["dynamic_data_operation_templates"]:
+                    if category["dynamic_data_operation_templates"][dynamic_data_key][1]:
+                        category["dynamic_data_operation_templates"][dynamic_data_key][1] = "FUNCTION"
+
+                    else:
+                        category["dynamic_data_operation_templates"][dynamic_data_key][1] = "INSTANT"
+            for entry in json_data["entries"].values():
+                for dynamic_data_key in entry["dynamic_data_operations"]:
+                    if entry["dynamic_data_operations"][dynamic_data_key][1]:
+                        entry["dynamic_data_operations"][dynamic_data_key][1] = "FUNCTION"
+
+                    else:
+                        entry["dynamic_data_operations"][dynamic_data_key][1] = "INSTANT"
+
+        return json_data

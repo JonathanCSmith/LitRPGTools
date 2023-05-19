@@ -5,14 +5,13 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import QDialog, QPushButton, QFormLayout, QLineEdit, QPlainTextEdit, QComboBox, QMessageBox, QLabel, QCheckBox, QWidget, QVBoxLayout, QHBoxLayout
 
-from new.data import Entry, Character, Category
-from new.ui.desktop import dynamic_data_components
-from new.ui.desktop.custom_generic_components import ShadedWidget
-from new.ui.desktop.spelling_components import SpellTextEdit, SpellTextEditSingleLine
+from data import Entry, Character, Category
+from ui.desktop import dynamic_data_components
+from ui.desktop.custom_generic_components import ShadedWidget
+from ui.desktop.spelling_components import SpellTextEdit, SpellTextEditSingleLine
 
 if TYPE_CHECKING:
-    from new.main import LitRPGToolsEngine
-    from new.ui.desktop.gui import LitRPGToolsDesktopGUI
+    from main import LitRPGToolsEngine
 
 
 class EntryDialog(QDialog):
@@ -403,40 +402,6 @@ class DoubleEntryDialog(QDialog):
                 self.__data_movement_layout.itemAt(target_row, QFormLayout.ItemRole.FieldRole).widget().setFixedHeight(desired_height)
                 print("Setting row: " + str(target_row) + " to height: " + str(desired_height))
 
-        # # Attempt to make the rows the same height for our buttons as the data displays...
-        # row_count = self.__old_entry_layout.rowCount() - 1
-        # header_height = 14  # Magic number to account for qframelayouts additional borders
-        # for row in range(0, row_count):
-        #     # label_item = self.__old_entry_layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
-        #     layout_item = self.__old_entry_layout.itemAt(row, QFormLayout.ItemRole.FieldRole)
-        #
-        #     if row < 3:
-        #         if layout_item is not None:
-        #             header_height += layout_item.sizeHint().height()
-        #             #print("Header updated to: " + str(header_size) + " from field: " + label_item.widget().text() + " at loop index: " + str(row))
-        #         continue
-        #
-        #     elif row == 3:
-        #         target = self.__data_movement_layout.itemAt(0, QFormLayout.ItemRole.LabelRole)
-        #         if layout_item is not None:
-        #             header_height += layout_item.sizeHint().height()
-        #         if target is not None:
-        #             target.widget().setFixedHeight(header_height)
-        #             #print("Assigning row 0 in target the height: " + str(header_size) + " at loop index: " + str(row))
-        #     else:
-        #         target = self.__data_movement_layout.itemAt(row - 3, QFormLayout.ItemRole.FieldRole)
-        #         if layout_item is not None and target is not None:
-        #             height = layout_item.sizeHint().height()
-        #
-        #             # Different widgets need a little 'fudging' to get them to align correctly
-        #             if isinstance(layout_item.widget(), SpellTextEditSingleLine):
-        #                 height += 0
-        #             elif isinstance(layout_item.widget(), SpellTextEdit):
-        #                 height += 12
-        #
-        #             target.widget().setFixedHeight(height)
-        #             #print("Mutating target row: " + str(row - 3) + " with text to have height: " + str(height) + " from " + label_item.widget().text() + " at row index " + str(row))
-
 
 def set_entry_as_head(engine: 'LitRPGToolsEngine', entry: Entry):
     if entry is None:
@@ -526,7 +491,7 @@ def update_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
 
     # Get the 'most recent' in the series up to the current index
     current_entry = engine.get_entry_by_id(current_entry_id)
-    new_entry = Entry(current_entry.character_id, current_entry.category_id, current_entry.data, current_entry.is_disabled, dynamic_data_operations=entry.dynamic_data_operations, parent_id=current_entry.unique_id, child_id=current_entry.child_id)
+    new_entry = Entry(current_entry.character_id, current_entry.category_id, current_entry.data, current_entry.is_disabled, parent_id=current_entry.unique_id, child_id=current_entry.child_id)
     entry_dialog = DoubleEntryDialog(engine, new_entry, current_entry, editing=False)
     entry_dialog.exec()
     if not entry_dialog.success:
@@ -572,6 +537,25 @@ def update_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
     return target_entry
 
 
+def force_update_entry_with_no_changes(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
+    current_entry_id = engine.get_most_recent_entry_id_in_series(entry.unique_id)
+
+    # This situation can happen when our 'current index' is set to before the entry series has been created
+    if current_entry_id is None:
+        return None
+
+    # Get the 'most recent' in the series up to the current index
+    current_entry = engine.get_entry_by_id(current_entry_id)
+
+    # Duplicate the entry
+    new_entry = Entry(current_entry.character_id, current_entry.category_id, current_entry.data, current_entry.is_disabled, parent_id=current_entry.unique_id, child_id=current_entry.child_id)
+
+    # Apply data
+    current_entry.child_id = new_entry.unique_id
+    engine.add_entry_at_head(new_entry)
+    return new_entry
+
+
 def delete_entry_series(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
     result = QMessageBox.question(caller, "Are you sure?", "Are you sure you want to delete this entry and all of the entries in the same series?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
     if result != QMessageBox.StandardButton.Yes:
@@ -589,7 +573,7 @@ def delete_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
 
 
 def duplicate_entry(engine: 'LitRPGToolsEngine', entry: Entry):
-    from new.ui.desktop.character_components import CharacterSelectorDialog
+    from ui.desktop.character_components import CharacterSelectorDialog
     character_dialog = CharacterSelectorDialog(engine)
     character_dialog.exec()
     if not character_dialog.success:
@@ -639,13 +623,13 @@ def create_entry_form(engine: 'LitRPGToolsEngine', target_layout: QFormLayout, c
         callback_for_editables.append(input_field)
 
     # Dynamic data modifications
-    modifications_table = dynamic_data_components.create_dynamic_data_table(readonly=readonly)
+    series_data_table = dynamic_data_components.create_dynamic_data_table(readonly=readonly)
     if entry is not None and entry.dynamic_data_operations:
-        dynamic_data_components.fill_dynamic_modifications_table(modifications_table, entry.dynamic_data_operations, readonly=readonly)
+        dynamic_data_components.fill_dynamic_modifications_table(series_data_table, entry.dynamic_data_operations, readonly=readonly)
     else:
-        dynamic_data_components.fill_dynamic_modifications_table(modifications_table, {}, readonly=readonly)
-    target_layout.addRow("Dynamic Data:", modifications_table)
-    callback_for_editables.append(modifications_table)
+        dynamic_data_components.fill_dynamic_modifications_table(series_data_table, {}, readonly=readonly)
+    target_layout.addRow("Dynamic Data:", series_data_table)
+    callback_for_editables.append(series_data_table)
 
     # Add display for 'disabled'
     check_box = QCheckBox()
@@ -656,58 +640,3 @@ def create_entry_form(engine: 'LitRPGToolsEngine', target_layout: QFormLayout, c
     target_layout.addRow("Is Disabled?", check_box)
     callback_for_editables.append(check_box)
     return callback_for_editables
-
-
-# def create_entry_form_with_controls(target_layout, engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', entry: Entry, translate_with_dynamic_data: bool = False):
-#     character = engine.get_character_by_id(entry.character_id)
-#     category = engine.get_category_by_id(entry.category_id)
-#     entry_index = engine.get_entry_index_in_history(entry.unique_id)
-#
-#     # Form
-#     entry_form = QWidget()
-#     entry_form_layout = QFormLayout()
-#     create_entry_form(engine, entry_form_layout, character, category, entry, entry_index, translate_with_dynamic_data=translate_with_dynamic_data)
-#     entry_form.setLayout(entry_form_layout)
-#
-#     # Controls
-#     entry_controls = QWidget()
-#     entry_controls_layout = QVBoxLayout()
-#     set_as_head_button = QPushButton("Set as Current Entry in History")
-#     set_as_head_button.clicked.connect(partial(set_entry_as_head, engine, parent, entry))
-#     entry_controls_layout.addWidget(set_as_head_button)
-#     # set_as_selected_button = QPushButton("Highlight all entries in series.")
-#     # set_as_selected_button.clicked.connect(partial(parent.set_curently_selected, entry_index))
-#     # entry_controls_layout.addWidget(set_as_selected_button)
-#     entry_edit_button = QPushButton("Edit")
-#     entry_edit_button.clicked.connect(partial(edit_entry, engine, parent, entry))
-#     entry_controls_layout.addWidget(entry_edit_button)
-#     entry_update_button = QPushButton("Update")
-#     entry_update_button.clicked.connect(partial(update_entry, engine, parent, entry))
-#     entry_controls_layout.addWidget(entry_update_button)
-#     entry_series_delete_button = QPushButton("Delete Series")
-#     entry_series_delete_button.clicked.connect(partial(delete_entry_series, engine, parent, entry))
-#     entry_controls_layout.addWidget(entry_series_delete_button)
-#     entry_delete_button = QPushButton("Delete")
-#     entry_delete_button.clicked.connect(partial(delete_entry, engine, parent, entry))
-#     entry_controls_layout.addWidget(entry_delete_button)
-#     entry_duplicate_button = QPushButton("Duplicate")
-#     entry_duplicate_button.clicked.connect(partial(duplicate_entry, engine, parent, entry))
-#     entry_controls_layout.addWidget(entry_duplicate_button)
-#     entry_controls_layout.addStretch()
-#     # spacer = QWidget()
-#     # entry_controls_layout.addWidget(spacer)
-#     # entry_controls_layout.setStretchFactor(spacer, 100)
-#     # entry_controls_layout.setContentsMargins(0, 0, 0, 0)
-#     entry_controls.setLayout(entry_controls_layout)
-#
-#     # Main container
-#     entry_widget = QWidget()
-#     entry_widget_layout = QHBoxLayout()
-#     entry_widget_layout.addWidget(entry_form)
-#     entry_widget_layout.setStretchFactor(entry_form, 90)
-#     entry_widget_layout.addWidget(entry_controls)
-#     entry_widget_layout.setStretchFactor(entry_controls, 10)
-#     entry_widget_layout.setContentsMargins(0, 0, 0, 0)
-#     entry_widget.setObjectName("bordered")
-#     entry_widget.setLayout(entry_widget_layout)
-#     target_layout.addWidget(entry_widget)

@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 from indexed import IndexedOrderedDict
 
-from new.data import Character, Category, Entry, Output, DataFile
+from data import Character, Category, Entry, Output, DataFile
 
 
 def move_item_in_indexedordererdict_by(iod: IndexedOrderedDict, key, shift) -> IndexedOrderedDict | None:

@@ -2,13 +2,13 @@ import re
 from typing import TYPE_CHECKING, List
 
 import pygsheets
-from pygsheets import Worksheet, Spreadsheet, WorksheetNotFound, DataRange, Address
+from pygsheets import Worksheet, WorksheetNotFound, DataRange, Address
 from pygsheets.exceptions import RangeNotFound
 
-from new.data import Category, Output
+from data import Category, Output
 
 if TYPE_CHECKING:
-    from new.main import LitRPGToolsEngine
+    from main import LitRPGToolsEngine
 
 
 class OverviewSheet:
@@ -86,7 +86,7 @@ class HistorySheet:
     def write(self, engine: 'LitRPGToolsEngine', output: Output):
         named_range_pointers = list()
         output_counter = 0
-        final_index = engine.get_entry_index_in_history(output.members[-1])
+        # final_index = engine.get_entry_index_in_history(output.members[-1])
         for entry_id in output.members:
             entry = engine.get_entry_by_id(entry_id)
             entry_index = engine.get_entry_index_in_history(entry_id)
@@ -109,7 +109,7 @@ class HistorySheet:
                 if entry_data == "":
                     continue
 
-                data_to_write.append([content_header, engine.translate_using_dynamic_data_at_index_for_character(entry.character_id, entry_data, entry_id, final_index)])
+                data_to_write.append([content_header, engine.translate_using_dynamic_data_at_index_for_character(entry.character_id, entry_data, entry_id, entry_index)])
 
             # Write data block with index and ensure we 'save' it as a named range to preserve sheet -> doc references
             named_range_pointer = self.write_named_range(entry_id, data_to_write)
@@ -137,16 +137,14 @@ class HistorySheet:
         # Check to see if the named range already exists, if so, adjust
         try:
             nr: DataRange = self.worksheet.get_named_range(name)
-            if nr.range == start + ":" + end:
-                return
-
-            # Cannot set both at the same time as it throws an error if the data range is 'inverted' so we basically just have to try both
-            try:
-                nr.start_addr = Address(start)
-                nr.end_addr = Address(end)
-            except AssertionError as ae:
-                nr.end_addr = Address(end)
-                nr.start_addr = Address(start)
+            if nr.range != start + ":" + end:
+                # Cannot set both at the same time as it throws an error if the data range is 'inverted' so we basically just have to try both
+                try:
+                    nr.start_addr = Address(start)
+                    nr.end_addr = Address(end)
+                except AssertionError as ae:
+                    nr.end_addr = Address(end)
+                    nr.start_addr = Address(start)
 
         except RangeNotFound:
             nr = DataRange(start=start, end=end, worksheet=self.worksheet)

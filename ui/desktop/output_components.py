@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QComboBox, QPushButton, QWidget, QVBoxLayout, QScrollArea, QFormLayout, QCheckBox, QHBoxLayout, QMessageBox, QLabel, QFrame, QLineEdit, QListWidget, QAbstractItemView, QListWidgetItem
 
-from new.data import Output, Entry, Character, Category
-from new.ui.desktop import entry_components
-from new.ui.desktop.custom_generic_components import VisibleDynamicSplitPanel
+from data import Output, Entry, Character, Category
+from ui.desktop import entry_components
+from ui.desktop.custom_generic_components import VisibleDynamicSplitPanel
 
 if TYPE_CHECKING:
-    from new.main import LitRPGToolsEngine
-    from new.ui.desktop.gui import LitRPGToolsDesktopGUI
+    from main import LitRPGToolsEngine
+    from ui.desktop.gui import LitRPGToolsDesktopGUI
 
 
 class OutputsTab(VisibleDynamicSplitPanel):
@@ -249,7 +249,6 @@ class OutputView(QScrollArea):
         self.__results_view_layout = QVBoxLayout()
         self.__results_view_layout.setContentsMargins(0, 0, 0, 0)
         self.__results_view.setLayout(self.__results_view_layout)
-        self.__results_view_scroll = QScrollArea()
         self.setWidget(self.__results_view)
         self.setWidgetResizable(True)
         self.setContentsMargins(0, 0, 0, 0)

@@ -3,17 +3,16 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QSignalBlocker
-from PyQt6.QtGui import QDropEvent
 from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QPushButton, QFormLayout, QTableWidgetItem, QHeaderView, QMessageBox, QComboBox, QTabWidget, QVBoxLayout, QWidget, QCheckBox
 
-from new.data import Character
-from new.ui.desktop.category_components import CategoryTab
-from new.ui.desktop.custom_generic_components import add_checkbox_in_table_at
-from new.ui.desktop.dynamic_data_components import DynamicDataTab
+from data import Character
+from ui.desktop.category_components import CategoryTab
+from ui.desktop.custom_generic_components import add_checkbox_in_table_at
+from ui.desktop.dynamic_data_components import DynamicDataTab
 
 if TYPE_CHECKING:
-    from new.main import LitRPGToolsEngine
-    from new.ui.desktop.gui import LitRPGToolsDesktopGUI
+    from main import LitRPGToolsEngine
+    from ui.desktop.gui import LitRPGToolsDesktopGUI
 
 
 class CharacterTab(QWidget):

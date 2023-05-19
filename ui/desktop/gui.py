@@ -7,16 +7,16 @@ from PyQt6.QtCore import Qt, QSignalBlocker
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QTabWidget, QMessageBox
 
-from new.data import Character, Category
-from new.ui.desktop import category_components, character_components
-from new.ui.desktop.character_components import CharacterTab
-from new.ui.desktop.historic_components import HistoryTab
-from new.ui.desktop.output_components import OutputsTab
-from new.ui.desktop.search_components import SearchTab
+from data import Character
+from ui.desktop import category_components, character_components
+from ui.desktop.character_components import CharacterTab
+from ui.desktop.historic_components import HistoryTab
+from ui.desktop.output_components import OutputsTab
+from ui.desktop.search_components import SearchTab
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QApplication
-    from new.main import LitRPGToolsEngine
+    from main import LitRPGToolsEngine
 
 
 class LitRPGToolsDesktopGUI(QMainWindow):
@@ -207,12 +207,14 @@ class LitRPGToolsDesktopGUI(QMainWindow):
             self.__draw_submenus()
         # No need to update as our current implementation implies that nothing will know about this category yet...
 
-    def __handle_category_edit_callback(self, category: Category):
+    def __handle_category_edit_callback(self, category_id: str):
+        category = self.__engine.get_category_by_id(category_id)
         category_components.add_or_edit_category(self.__engine, category)
         self.draw()  # Broad call here as we don't know if this category is currently being displayed...
 
-    def __handle_category_delete_callback(self, category: Category):
-        category_components.delete_category(self.__engine, category)
+    def __handle_category_delete_callback(self, category_id: str):
+        category = self.__engine.get_category_by_id(category_id)
+        category_components.delete_category(self.__engine, self, category)
         self.draw()  # Broad call here as we don't know if this category is currently being displayed...
 
     def check_for_autosave(self):
@@ -304,6 +306,6 @@ class LitRPGToolsDesktopGUI(QMainWindow):
         # Loop through available characters and add actions for their characters specifically
         for category in categories:
             action = self.__edit_category_menu_action.addAction(category.name)
-            action.triggered.connect(partial(self.__handle_category_edit_callback, category))
+            action.triggered.connect(partial(self.__handle_category_edit_callback, category.unique_id))
             action = self.__delete_category_menu_action.addAction(category.name)
-            action.triggered.connect(partial(self.__handle_category_delete_callback, category))
+            action.triggered.connect(partial(self.__handle_category_delete_callback, category.unique_id))

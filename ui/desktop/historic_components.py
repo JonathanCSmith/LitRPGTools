@@ -1,17 +1,16 @@
-from functools import partial
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFormLayout, QLineEdit, QFrame, QListWidgetItem, QListWidget, QAbstractItemView, QCheckBox
 
-from new.data import Character, Category, Entry
-from new.ui.desktop import entry_components, output_components
-from new.ui.desktop.custom_generic_components import VisibleDynamicSplitPanel, ShadedWidget
+from data import Character, Category, Entry
+from ui.desktop import output_components, entry_components
+from ui.desktop.custom_generic_components import VisibleDynamicSplitPanel, ShadedWidget
 
 if TYPE_CHECKING:
-    from new.ui.desktop.gui import LitRPGToolsDesktopGUI
-    from new.main import LitRPGToolsEngine
+    from ui.desktop.gui import LitRPGToolsDesktopGUI
+    from main import LitRPGToolsEngine
 
 
 class HistoryTab(VisibleDynamicSplitPanel):

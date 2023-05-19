@@ -1,562 +1,904 @@
 import json
+import os.path
 import sys
 from collections import OrderedDict
-from typing import Optional
+from typing import Dict, List
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QFileDialog, QProgressDialog
+from PyQt6.QtWidgets import QApplication, QProgressDialog
 from indexed import IndexedOrderedDict
 
-from data.categories import Category
-from data.data_holder import SerializationData
-from data.entries import Entry
-from data.tags import Tag
-from gui.core_gui import MainGUI
-from utils.gsheets import build_gsheets_communicator, SystemSheetLayoutHandler, HistorySheetLayoutHandler
+import utils
+import search_helper
+from data import Character, Entry, Category, Output, DataFile
+from dynamic import DynamicDataStore
+from gsheets import GSheetsHandler
+from ui.desktop.gui import LitRPGToolsDesktopGUI
+from utils import handle_old_save_file_loader
+
+"""
+TODO: Changes on character name didn't propagate (but were in save file)
+TODO: Display Hidden not working in main category type display?
+TODO: Enter = run search
+
+TODO: Search shouldn't be tokenised??? 
+TODO: Catch likely candidates (e.g. '[string]') and assume we intended it a string literal?
+
+TODO: Fill in options (i.e. for create entry) when there is only one choice
+TODO: Create entry everywhere with context applied?
+TODO: Is disabled should be hidden???
+TODO: Autosave to remember default save path?
+
+TODO: OS X saving seems to put it in the wrong directory (uses relative to cwd?)
+
+TODO: Expression creator!
+
+TODO: History log text inject category info etc etc
+TODO: Test everything by updating existing work
+
+TODO: Test everything
+TODO: Do I need to have so much in the update functions?
+TODO: Validate 'current selection' and 'head' behaviour for all actions
+TODO: Better notifications when things go wrong
+TODO: Help tooltip for creation & update text special stuff (i.e. any token stuff I add in)
+
+TODO: Replace in search?
+TODO: Mobile?
+TODO: Bullet Points and Bold?
+TODO: Switch to Deltas?
+TODO: Versionable Categories?
+TODO: NamedRanges ordering
+"""
 
 
-class LitRPGTools:
+class LitRPGToolsEngine:
     def __init__(self):
-        self.app = QApplication(sys.argv)
+        self.runtime = QApplication(sys.argv)
         self.gui = None
 
-        # Data holders
+        # Runtime flags
+        self.started = False
+
+        # Permanent Data
+        self.__history = list()
+        self.__outputs: OrderedDict[str, Output] = OrderedDict()
+        self.__characters = IndexedOrderedDict()
+        self.__categories = IndexedOrderedDict()
+        self.__entries: Dict[str, Entry] = dict()
+
+        # Ephemeral Cache Data (Volatile)
+        self.__character_category_root_entry_cache = dict()  # Character id index -> Category id index -> list of entries (only roots!)
+        self.__revision_indices = dict()  # All entries -> revision key (which is actually revision root id but hey-ho)
+        self.__revisions = dict()  # revision key (which is actually revision root id) -> ordered list of revisions
+        self.__entry_id_to_output_cache = dict()  # Map entry to outputs where said entry is the target
+
+        # Runtime data
+        self.file_save_path = None
         self.__history_index = -1
-        self.history = list()
-        self.entries = dict()
-        self.characters = IndexedOrderedDict()
-        self.categories = OrderedDict()
-        self.gsheets_credentials_path = None
-        self.tags = dict()
+        self.__value_store = dict()
+        self.__gsheets_credentials_path = None
+        self.__gsheets_handler: GSheetsHandler = None
 
-        # Caches
-        self.entries_for_character_category = dict()  # Character -> Category -> List of latest entries.
-        self.entry_revisions = dict()  # Absolute Parent -> Ordered List of Children for Entities
-        self.child_to_parent_map = dict()  # Child -> Parent Cache for Entries
-
-        # Subcomponents
-        self.gsheets_connector = None
-        self.session_path = None
-
-        # Unused but it's a nice template
-        self.__character_sheet_template = None
-        self.__components = dict()
+        # Dynamic data store
+        self.__dynamic_data_store = DynamicDataStore(self)
 
     def start(self):
-        self.gui = MainGUI(self, self.app)
+        self.gui = LitRPGToolsDesktopGUI(self, self.runtime)
+        self.started = True
 
     def run(self):
+        if not self.started:
+            print("Application has not been started")
+            return
+
         self.gui.show()
-        sys.exit(self.app.exec())
-
-    def add_character(self, nickname):
-        self.characters[nickname] = list()
-
-    def get_character_by_index(self, index):
-        return self.characters[self.characters.keys()[index]]
-
-    def get_character_categories(self, name: str) -> list:
-        return self.characters[name]
-
-    def get_characters(self):
-        return self.characters
-
-    def assign_categories_to_character(self, character: str, categories: list) -> None:
-        # Re-order input list such that it maintains our known order
-        new_list = []
-        for entry in self.characters[character]:
-            if entry in categories:
-                new_list.append(entry)
-            categories.remove(entry)
-        new_list.extend(categories)
-
-        self.characters[character] = new_list
-
-    def delete_character(self, character):
-        del self.characters[character]
-
-        # Maintain cache coherence
-        if character in self.entries_for_character_category:
-            character_categories = self.entries_for_character_category[character]
-            for category in character_categories:
-                entries = character_categories[category]
-                for entry in entries:
-                    index = self.history.index(entry)
-                    self.delete_entry_at_index(index)
-            del self.entries_for_character_category[character]
-
-    def delete_character_by_index(self, index):
-        del self.characters[self.characters.keys()[index]]
-
-    def get_category(self, category_name: str) -> Category:
-        return self.categories[category_name]
-
-    def get_categories(self):
-        return self.categories
-
-    def set_categories(self, categories: OrderedDict):
-        self.categories = categories
-
-    def add_category(self, category: Category):
-        self.categories[category.get_name()] = category
-
-    def edit_category(self, category_name, category: Category):
-        if category_name not in self.categories:
-            return
-
-        # Try and maintain our order
-        if category_name != category.get_name():
-            new_categories = OrderedDict()
-            for category_key, value in self.categories.items():
-                if category_key != category_name:
-                    new_categories[category_key] = value
-                else:
-                    new_categories[category.get_name()] = category
-
-            self.categories = new_categories
-
-        else:
-            self.categories[category.get_name()] = category
-
-        # Change all entries
-        if category_name != category.get_name():
-            for entry in self.entries.values():
-                if entry.get_category() == category_name:
-                    entry.category = category.get_name()
-
-        self.build_entry_history_caches()
-
-    def delete_category(self, category_name: str):
-        if category_name in self.categories:
-            del self.categories[category_name]
-
-            # Delete to maintain cache coherence
-            for categories_per_character in self.entries_for_character_category.values():
-                if category_name in categories_per_character:
-                    entries = categories_per_character[category_name]
-                    for entry in entries:
-                        index = self.history.index(entry)
-                        self.delete_entry_at_index(index)
-
-                    del categories_per_character[category_name]
-
-    def get_category_state_for_entity(self, category: str, entity):
-        if isinstance(entity, str):
-            entity = self.characters.keys().index(entity)
-
-        if entity not in self.entries_for_character_category or category not in self.entries_for_character_category[entity]:
-            return None
-
-        return self.entries_for_character_category[entity][category]
-
-    def get_category_state_for_entity_at_time(self, category: str, entity: int, time: int):
-        if time == self.get_history_index():
-            return self.get_category_state_for_entity(category, entity)
-
-        stored_location = self.get_history_index()
-        self.set_current_history_index(time)
-        outputs = self.get_category_state_for_entity(category, entity)
-        self.set_current_history_index(stored_location)
-        return outputs
-
-    def get_entry(self, unique_key) -> Entry:
-        return self.entries[unique_key]
-
-    def get_current_entry(self) -> Entry:
-        unique_key = self.history[self.__history_index]
-        return self.entries[unique_key]
-
-    def get_entry_by_index(self, index) -> Optional[Entry]:
-        try:
-            unique_key = self.history[index]
-        except IndexError:
-            return None
-        return self.entries[unique_key]
-
-    def get_history_index_from_entry(self, unique_key: str):
-        return self.history.index(unique_key)
-
-    def get_entry_key_by_index(self, index):
-        return self.history[index]
-
-    def add_entry(self, entry: Entry):
-        self.entries[entry.unique_key] = entry
-
-        # Handle linkage insertion
-        child_keys = list(self.child_to_parent_map.keys())
-        parent_keys = list(self.child_to_parent_map.values())
-        if entry.parent_key in parent_keys:  # It may not be if our parent previously didn't have a child
-            child_key_to_change = child_keys[parent_keys.index(entry.parent_key)]
-            self.child_to_parent_map[child_key_to_change] = entry.unique_key
-            target_entry = self.get_entry(child_key_to_change)
-            target_entry.parent_key = entry.unique_key
-
-        # Mark our parent as our parent
-        if entry.parent_key:
-            self.child_to_parent_map[entry.unique_key] = entry.parent_key
-
-        # Add the data to our history
-        self.history.insert(self.__history_index + 1, entry.unique_key)
-        self.set_current_history_index(self.__history_index + 1)
-
-    def update_existing_entry_values(self, unique_key: str, values: list, should_print_to_overview=None, should_print_to_history=None):
-        entry = self.entries[unique_key]
-        entry.set_values(values)
-        if should_print_to_overview is not None:
-            entry.set_print_to_overview(should_print_to_overview)
-        if should_print_to_history is not None:
-            entry.print_to_history = should_print_to_history
-
-    def delete_entry_at_index(self, index):
-        # Remove the entry from our history list
-        unique_id = self.history.pop(index)
-        del self.entries[unique_id]
-
-        # Handle linkage deletion (i.e. when a link in the entry history log is removed)
-        parent_key = None
-        if unique_id in self.child_to_parent_map:
-            parent_key = self.child_to_parent_map.pop(unique_id)
-        values = list(self.child_to_parent_map.values())
-        if unique_id in values:
-            target_to_change = list(self.child_to_parent_map.keys())[values.index(unique_id)]
-            self.child_to_parent_map[target_to_change] = parent_key
-            entry = self.get_entry(target_to_change)
-            entry.parent_key = parent_key
-
-        # Handle the edge case where we were deleting an item before what we have 'selected'
-        if index <= self.__history_index:
-            self.set_current_history_index(self.__history_index - 1)
-
-        # Rebuild cache
-        self.build_entry_history_caches()
-
-    def get_entry_parent_key(self, unique_key: str):
-        if unique_key in self.child_to_parent_map:
-            return self.child_to_parent_map[unique_key]
-        return None
-
-    def get_child_key_from_parent_key(self, parent_key: str):
-        children = list(self.child_to_parent_map.keys())
-        parents = list(self.child_to_parent_map.values())
-        if parent_key not in parents:
-            return None
-        return children[parents.index(parent_key)]
-
-    def get_absolute_parent(self, unique_key: str):
-        parent_key = None
-        key = unique_key
-        while True:
-            key = self.get_entry_parent_key(key)
-            if key is None:
-                break
-            else:
-                parent_key = key
-
-        return parent_key
-
-    def get_most_recent_revision_for_root_entry_key(self, unique_str: str):
-        if unique_str in self.entry_revisions:
-            return self.entry_revisions[unique_str][-1]
-        return None
-
-    def get_all_revisions_for_root_entry_key(self, root_key: str):
-        if root_key in self.entry_revisions:
-            return self.entry_revisions[root_key]
-        return None
-
-    def move_entry_in_history(self, original_location, up):
-        original_entry = self.get_entry(self.history[original_location])
-
-        if up:
-            new_location = original_location - 1
-            displaced_entry = self.get_entry(self.history[new_location])
-
-            # Check if new_location is our parent
-            if original_entry.get_parent_key() == displaced_entry.unique_key:
-                hold = displaced_entry.unique_key
-                displaced_entry.parent_key = original_entry.get_parent_key()
-                original_entry.parent_key = hold
-
-        else:
-            new_location = original_location + 1
-            displaced_entry = self.get_entry(self.history[new_location])
-
-            # Check if new_location is our child
-            if displaced_entry.get_parent_key() == original_entry.unique_key:
-                hold = original_entry.unique_key
-                original_entry.parent_key = displaced_entry.get_parent_key()
-                displaced_entry.parent_key = hold
-
-        # Swap!
-        self.history[original_location], self.history[new_location] = self.history[new_location], self.history[original_location]
-
-        # Scaffolds
-        self.build_entry_history_caches()
-
-    def get_all_category_entries(self, category_name):
-        applicable_entries = []
-        for entry in self.entries.values():
-            if entry.get_category() == category_name:
-                applicable_entries.append(entry)
-
-        return applicable_entries
-
-    def build_entry_history_caches(self):
-        self.entry_revisions.clear()
-        if len(self.history) == 0:
-            return
-
-        # Loop through our entries and initialise our entry history trackers as well as build the dynamic data cache
-        for i in range(self.get_history_index() + 1):
-            unique_key = self.history[i]
-
-            # Rebuild our entry revision information
-            parent_key = self.get_absolute_parent(unique_key)
-            if parent_key is None:
-                self.entry_revisions[unique_key] = [unique_key]
-            else:
-                self.entry_revisions[parent_key].append(unique_key)
-
-        # Rebuild our category pointers
-        self.entries_for_character_category.clear()
-        for root_key in self.entry_revisions.keys():
-            root_entry = self.get_entry(root_key)
-            if root_entry.character not in self.entries_for_character_category:
-                self.entries_for_character_category[root_entry.character] = dict()
-            if root_entry.category not in self.entries_for_character_category[root_entry.character]:
-                self.entries_for_character_category[root_entry.character][root_entry.category] = []
-            self.entries_for_character_category[root_entry.character][root_entry.category].append(self.entry_revisions[root_key][-1])
-
-    def get_history(self):
-        return self.history
-
-    def get_history_index(self):
-        return self.__history_index
-
-    def set_current_history_index(self, index):
-        if index < -1:
-            index = -1
-        elif index >= len(self.entries) - 1:
-            index = len(self.entries) - 1
-
-        self.__history_index = index
-        self.build_entry_history_caches()
-
-    def add_tag(self, entry_key, tag_name, tag_target):
-        self.tags[entry_key] = Tag(tag_name, entry_key, tag_target)
-
-    def get_tag(self, entry_key) -> Optional[Tag]:
-        if entry_key in self.tags:
-            return self.tags[entry_key]
-        return None
-
-    def get_tags(self):
-        return self.tags
-
-    def delete_tag(self, entry_key):
-        if entry_key in self.tags:
-            del self.tags[entry_key]
-
-    def save_as(self):
-        file = QFileDialog.getSaveFileName(self.gui, "Save File", "*.litrpg", filter="*.litrpg")
-        if file[0] == "":
-            return
-        self.session_path = file[0]
-        self.save()
+        sys.exit(self.runtime.exec())
 
     def save(self):
-        if self.session_path is None:
-            return self.save_as()
-
-        # Sort entries with an order - just helps debugging save data
-        indices = {v: i for i, v in enumerate(self.history)}
-        entries = dict(sorted(self.entries.items(), key=lambda pair: indices[pair[0]]))
-
-        # Save
-        data_holder = SerializationData(self.gsheets_credentials_path, self.tags, self.characters, self.categories, self.history, self.__history_index, entries)
-        jsons = json.dumps(data_holder, default=lambda o: o.__dict__, indent=4)
-        with open(self.session_path, "w") as json_file:
-            json_file.write(jsons)
+        # We assume this is already set somewhere as our engine doesn't know about guis (NOTE, doesn't have to be this way. GUIs could implement an interface/mixin)
+        if self.file_save_path is None:
+            return
+        self.__save(self.file_save_path)
 
     def load(self):
-        file = QFileDialog.getOpenFileName(self.gui, 'OpenFile', filter="*.litrpg")
-        if file[0] == "":
+        # We assume this is already set somewhere as our engine doesn't know about guis (NOTE, doesn't have to be this way. GUIs could implement an interface/mixin)
+        if self.file_save_path is None:
             return
-        self.session_path = file[0]
+        self.__load(self.file_save_path)
 
-        # Load
-        with open(self.session_path, "r") as json_file:
-            data = json.load(json_file)
-            if "__class__" in data:
-                raise KeyError
+    def save_autosave(self):
+        self.__save("autosave.litrpg")
 
-            data_holder = SerializationData.from_json(data)
-            self.characters = data_holder.characters
-            self.categories = data_holder.categories
-            self.history = data_holder.history
-            self.entries = data_holder.members
-            self.gsheets_credentials_path = data_holder.credentials
-            self.tags = data_holder.tags
-            history_index = data_holder.history_index
+    def has_autosave(self):
+        return os.path.isfile("autosave.litrpg")
 
-        # Rebuild parent entries
-        self.child_to_parent_map = dict()
-        for key, entry in self.entries.items():
-            parent_key = entry.get_parent_key()
-            if key in self.child_to_parent_map:
-                raise KeyError("Should not have duplicate child keys in child -> parent map. Bad DAG.")
+    def load_autosave(self):
+        self.__load("autosave.litrpg")
 
-            if parent_key is not None:
-                self.child_to_parent_map[key] = parent_key
-        self.set_current_history_index(history_index)
+    def delete_autosave(self):
+        if os.path.isfile("autosave.litrpg"):
+            os.remove("autosave.litrpg")
 
-        # Validate parent entries as best as we can - can be used to indicate some mess ups in linkage / manual editing
-        parents = list(self.child_to_parent_map.values())
-        if len(parents) != len(set(parents)):
-            raise ValueError("Should not have duplicate parent keys in child -> parent map. Bad DAG.")
+    def __save(self, path: str):
+        data_holder = DataFile(self.__characters, self.__categories, self.__history, self.__entries, self.__outputs, self.__gsheets_credentials_path, self.__history_index)
+        jsons = json.dumps(data_holder, default=lambda o: o.__dict__, indent=4)
+        with open(path, "w") as output_file:
+            output_file.write(jsons)
 
-        # Rebuild gsheets connection if appropriate
-        if self.gsheets_credentials_path is not None:
-            self.gsheets_connector = build_gsheets_communicator(file_path=self.gsheets_credentials_path)
-            # self.gsheets_connector.set_batch_mode(True)
+    def __load(self, path: str):
+        with open(path, "r") as source_file:
+            json_data = json.load(source_file)
+            if "file_version" not in json_data:
+                data_handler = handle_old_save_file_loader(json_data)
+                if data_handler is None:
+                    return
 
-        self.gui.handle_update()
-
-    def load_gsheets_credentials(self):
-        file = QFileDialog.getOpenFileName(self.gui, 'OpenFile', filter="*.json")
-        if file[0] == "":
-            return
-
-        self.gsheets_credentials_path = file[0]
-        self.gsheets_connector = build_gsheets_communicator(file_path=file[0])
-
-    def get_available_sheets(self):
-        try:
-            if self.gsheets_connector is not None:
-                return self.gsheets_connector.spreadsheet_titles()
             else:
-                return list()
+                data_handler = DataFile.from_json(json_data)
 
-        # Sometimes our connection times out
-        except ConnectionAbortedError:
-            self.gsheets_connector = build_gsheets_communicator(file_path=self.gsheets_credentials_path)
-            return self.gsheets_connector.spreadsheet_titles()
+        # Unpack the data
+        self.__characters = data_handler.characters
+        self.__categories = data_handler.categories
+        self.__entries = data_handler.entries
+        self.__outputs = data_handler.outputs
+        self.__history = data_handler.history
+        self.__history_index = data_handler.history_index
 
-    def dump(self):
-        # Save beforehand as the api has a way of randomly erroring
+        # Rebuild our caches
+        self.__rebuild_caches()
+        if self.gui is not None:
+            self.gui.draw()
+
+        # Setup gsheets - bail if it's not a valid path
+        # TODO: This may be confusing as the user may expect their path to work and it won't (changed locations, shared save etc)
+        gsheets_credentials = data_handler.gsheets_credentials_path
+        if gsheets_credentials is not None and gsheets_credentials != "" and os.path.isfile(gsheets_credentials):
+            self.load_gsheets_credentials(gsheets_credentials)
+
+    def load_gsheets_credentials(self, file: str):
+        self.__gsheets_handler = GSheetsHandler(self, self.gui, file)
+        self.__gsheets_credentials_path = file
+
+    def get_unassigned_gsheets(self):
+        if self.__gsheets_handler is None:
+            return None
+
+        sheets = self.__gsheets_handler.get_sheets()
+        for output in self.__outputs.values():
+            if output.gsheet_target in sheets:
+                sheets.remove(output.gsheet_target)
+        return sheets
+
+    def output_to_gsheets(self):
         self.save()
 
-        # Rough prediction for user inform (worst case)
-        current_count = 0
-        worst_case_scenario = len(self.tags) * len(self.categories) * (2 * len(self.characters)) + 1
-        progress_bar = QProgressDialog("Data dump in progress: ", None, 0, worst_case_scenario, self.gui)
-        progress_bar.setWindowTitle("Outputting files...")
+        # Progress metrics
+        current_work_done = 0
+        worst_case_max_work = len(self.__outputs) * len(self.__entries) * len(self.__characters) * 2 * 2  # 2 is from history AND overview. 2 is from us outputting old version too
+
+        # TODO: This is not implementation independent, if we ever change front ends this will need to be abstracted
+        progress_bar = QProgressDialog("Data output in progress: ", None, 0, worst_case_max_work, self.gui)
+        progress_bar.setWindowTitle("Outputting data.")
         progress_bar.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_bar.setValue(current_count)
+        progress_bar.setValue(current_work_done)
 
-        # Prealloc
-        previous_pointer = 0
+        # Loop through outputs
+        last_seen = -1
+        view_cache = dict()  # Because we are printing a rolling window of 2 outputs per output, we may as well cache
+        for output in self.__outputs.values():
+            estimate_work_done = current_work_done
 
-        # Sort our tags so they are in order of the appearance in the history
-        self.tags = {k: v for k, v in sorted(self.tags.items(), key=lambda items: self.history.index(items[1].get_associated_entry_key()))}
-
-        # Loop through our tags as they represent our output targets
-        cache = dict()
-        for tag in self.tags.values():
-            output_target = tag.get_tag_target()
-
-            if output_target is None or output_target == "" or output_target == "NONE":
-                current_count += len(self.categories)
-                progress_bar.setValue(current_count)
+            # Skip bad outputs
+            if output.gsheet_target is None or output.gsheet_target == "" or output.gsheet_target == "NONE":
+                current_work_done += len(self.__entries) * len(self.__characters) * 2 * 2
+                progress_bar.setValue(current_work_done)
                 continue
 
+            # Open up our target
             try:
-                worksheet = self.gsheets_connector.open(output_target)
+                self.__gsheets_handler.open(output.gsheet_target)
             except ConnectionAbortedError:
-                self.gsheets_connector = build_gsheets_communicator(file_path=self.gsheets_credentials_path)
-                worksheet = self.gsheets_connector.open(output_target)
+                self.__gsheets_handler.connect()
+                self.__gsheets_handler.open(output.gsheet_target)
 
-            # HEAD value
-            target_key = tag.get_associated_entry_key()
-            historical_index = self.history.index(target_key)
+            # Determine our 'output' last entry props
+            target_index = self.get_entry_index_in_history(output.target_entry_id)
 
-            # Loop through characters
-            for i in range(len(self.characters)):
-                character = self.characters.keys()[i]
+            # Operate on a per character basis
+            for character in self.__characters.values():
 
-                # Retrieve the 'Old' Sheet
-                old_system_sheet = SystemSheetLayoutHandler(self.gsheets_connector, worksheet, character + " Previous View")
-                old_system_sheet.clear_all()
+                # Create a 'view' for our previous output - so that it can easily be referenced from one document
+                if last_seen != -1:
 
-                # Retrieve the 'Current' sheet
-                system_sheet = SystemSheetLayoutHandler(self.gsheets_connector, worksheet, character + " Current View")
+                    # Clear out our old sheets
+                    old_system_sheet = self.__gsheets_handler.create_overview_sheet(character + " Previous View")
+                    old_system_sheet.clear_all()
+
+                    # Loop through on a per category basis
+                    for category_id in self.__characters[character.unique_id].categories:
+                        category = self.__categories[category_id]
+
+                        # Skip those who don't need outputting
+                        if not category.print_to_character_overview:
+                            estimate_work_done += 2
+                            progress_bar.setValue(estimate_work_done)
+                            continue
+
+                        # Get a 'view' of the current state of a category for a character
+                        # It's also guaranteed not to be empty as we skip the first
+                        output_instance_view = view_cache[category_id + "_" + category.unique_id + "_" + str(target_index)]
+
+                        # Write out our data
+                        old_system_sheet.write(self, category, output_instance_view, target_index)
+
+                        # Progress bar update
+                        estimate_work_done += 2
+                        progress_bar.setValue(estimate_work_done)
+
+                # Clear out our current sheet
+                system_sheet = self.__gsheets_handler.create_overview_sheet(character.name + " Current View")
                 system_sheet.clear_all()
 
-                # Loop through in the correct categories order
-                for category in self.characters[character]:
-                    if not category.get_print_to_overview():
-                        current_count += 2
-                        progress_bar.setValue(current_count)
+                # Loop through on a per category basis
+                for category_id in self.__characters[character.unique_id].categories:
+                    category = self.__categories[category_id]
+
+                    # Skip those who don't need outputting
+                    if not category.print_to_character_overview:
+                        estimate_work_done += 2
+                        progress_bar.setValue(estimate_work_done)
                         continue
 
-                    # Get our previous view if applicable
-                    category_name = category.get_name()
-                    cache_name = character + "+" + category_name
-                    if cache_name not in cache:
-                        view = None
-                    else:
-                        view = cache[cache_name]
+                    # Get a 'view' of the current state of a category for a character
+                    # It's also guaranteed not to be empty as we skip the first
+                    output_instance_view = self.get_entries_for_character_and_category_at_history_index(character.unique_id, category_id, target_index)
+                    view_cache[category_id + "_" + category.unique_id + "_" + str(target_index)] = output_instance_view
 
-                    # Write our cached obj out
-                    if view is not None and len(view) != 0:
-                        # Write the category data (if applicable) to the system view
-                        old_system_sheet.write_next([[category_name, ""]])
-                        old_system_sheet.write_category_data(self, category, view)
-                        # self.gsheets_connector.run_batch()
+                    # Write out our data
+                    system_sheet.write(self, category, output_instance_view, target_index)
 
-                    # Inform our UI
-                    current_count += 1
-                    progress_bar.setValue(current_count)
+                    # Progress bar update
+                    estimate_work_done += 2
+                    progress_bar.setValue(estimate_work_done)
 
-                    # Current data
-                    view = self.get_category_state_for_entity_at_time(category_name, i, historical_index)
+                # Correct our progressbar estimate
+                current_work_done += len(self.__entries) * 2
+                progress_bar.setValue(current_work_done)
 
-                    # This category may not exist in the past!
-                    if view is not None and len(view) != 0:
-                        # Write the category data (if applicable) to the system view
-                        system_sheet.write_next([[category_name, ""]])
-                        system_sheet.write_category_data(self, category, view)
-                        # self.gsheets_connector.run_batch()
-
-                    # Inform our UI and Update Cache
-                    current_count += 1
-                    progress_bar.setValue(current_count)
-                    cache[cache_name] = view
-
-            # Retrieve the history sheet
-            history_sheet = HistorySheetLayoutHandler(self.gsheets_connector, worksheet, "History")
+            # Output our history sheet
+            history_sheet = self.__gsheets_handler.create_history_sheet()
             history_sheet.clear_all()
+            history_sheet.write(self, output)
 
-            # Write out this tag's history in order
-            history_sheet.write_historical_data(self.history, self.entries, self.categories, self.characters, previous_pointer, historical_index)
-            previous_pointer = historical_index + 1
-            # self.gsheets_connector.run_batch()
+            # Further correct our progress bar - now you can see how bad the estimate was!
+            current_work_done += len(self.__entries) * len(self.__characters) * 2
+            progress_bar.setValue(current_work_done)
 
-            current_count += 1
-            progress_bar.setValue(current_count)
-
-        # Finish up by saving - this will ensure our pointers dont get lost
-        self.save()
+        # If we were successful save and finish!
         progress_bar.close()
+        self.save()
+
+    def get_character_ids(self):
+        return self.__characters.keys()
+
+    def get_characters(self) -> List[Character]:
+        return self.__characters.values()
+
+    def get_character_by_id(self, character_id: str) -> Character | None:
+        if character_id in self.__characters:
+            return self.__characters[character_id]
+        return None
+
+    def move_character_id_by_index_to_index(self, from_index, to_index):
+        self.__characters = utils.move_item_in_iod_by_index_to_position(self.__characters, from_index, to_index)
+
+    def add_character(self, character: Character, rebuild_caches=True):
+        if character.unique_id not in self.__characters:
+            self.__characters[character.unique_id] = character
+
+            # This is excessive here - we can shortcut if its performance heavy
+            if rebuild_caches:
+                self.__rebuild_caches()
+
+    def edit_character(self, character: Character, rebuild_caches=True):
+        original_character = self.__characters[character.unique_id]
+
+        # Need to special case when a category was disassociated from a character
+        for category_id in original_character.categories:
+            if category_id not in character.categories:
+
+                # Get the entries that match this character and the deleted category for deletion
+                root_entries = self.__character_category_root_entry_cache[character.unique_id][category_id]
+                for root_entry_id in root_entries:
+                    historic_entries = self.__revisions[root_entry_id]
+
+                    # Loop through our history, ignore dependency resolution as we know we are deleting everything
+                    for historic_entry in historic_entries:
+                        self.delete_entry(historic_entry, rebuild_caches=False)
+
+        # Now just directly reassign as its safe
+        self.__characters[character.unique_id] = character
+
+        # Rebuild caches now
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def delete_character(self, character: Character, rebuild_caches=True):
+        original_character = self.__characters[character.unique_id]
+        for category_id in original_character.categories:
+
+            # Get the entries that match this character and the deleted category for deletion
+            root_entries = self.__character_category_root_entry_cache[character.unique_id][category_id]
+            for root_entry_id in root_entries:
+                historic_entries = self.__revisions[root_entry_id]
+
+                # Loop through our history, ignore dependency resolution as we know we are deleting everything
+                for historic_entry_id in historic_entries:
+                    self.delete_entry(historic_entry_id, rebuild_caches=False)
+
+        # Delete and optionally rebuild caches
+        del self.__characters[character.unique_id]
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def get_categories(self) -> List[Category]:
+        return self.__categories.values()
+
+    def get_category_by_id(self, category_id: str) -> Category | None:
+        if category_id in self.__categories:
+            return self.__categories[category_id]
+        return None
+
+    def move_category_id_by_index_to_index(self, character_id: str, from_index, to_index):
+        if character_id not in self.__characters:
+            return
+
+        character = self.get_character_by_id(character_id)
+        character.categories = utils.move_item_in_list_by_index_to_position(character.categories, from_index, to_index)
+
+    def add_category(self, category: Category, rebuild_caches=True):
+        if category not in self.__categories:
+            self.__categories[category.unique_id] = category
+
+            # This is excessive here - we can shortcut if its performance heavy
+            if rebuild_caches:
+                self.__rebuild_caches()
+
+    def edit_category(self, category: Category, edit_instructions: list):
+        self.__categories[category.unique_id] = category
+
+        # Loop through all the entries associated with a category and update according to the edit instructions
+        for character_id in self.__character_category_root_entry_cache:
+            if category.unique_id not in self.__characters[character_id].categories:
+                continue
+
+            root_entries = self.__character_category_root_entry_cache[character_id][category.unique_id]
+            for root_entry_id in root_entries:
+                for history_entry_id in self.__revisions[root_entry_id]:
+                    entry = self.get_entry_by_id(history_entry_id)
+
+                    # Handle all available instructions in order (ORDER MATTERS)
+                    for instruction, location in edit_instructions:
+                        if instruction == "INSERT_AT":
+                            entry.data.insert(location, "")
+                        elif instruction == "DELETE":
+                            entry.data.pop(location)
+                        elif instruction == "MOVE UP":
+                            item = entry.data.pop(location)
+                            entry.data.insert(location - 1, item)
+                        elif instruction == "MOVE DOWN":
+                            item = entry.data.pop(location)
+                            entry.data.insert(location + 1, item)
+
+        # Update our dynamic data store
+        self.__dynamic_data_store.update()
+        self.save_autosave()
+
+    def delete_category(self, category: Category, rebuild_caches=True):
+        # Get the entries that match this category for deletion
+        for character_id in self.__character_category_root_entry_cache:
+            character = self.__characters[character_id]
+            if character.categories.contains[category.unique_id]:
+                character.categories.remove(category.unique_id)
+
+            root_entries = self.__character_category_root_entry_cache[character_id][category.unique_id]
+            for root_entry_id in root_entries:
+                historic_entries = self.__revisions[root_entry_id]
+
+                # Loop through our history, ignore dependency resolution as we know we are deleting everything
+                for historic_entry_id in historic_entries:
+                    self.delete_entry(historic_entry_id, rebuild_caches=False)
+
+        # Now just directly reassign as its safe
+        del self.__categories[category.unique_id]
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def get_outputs(self) -> List[Output]:
+        return self.__outputs.values()
+
+    def get_output_by_id(self, output_id: str) -> Output | None:
+        if output_id in self.__outputs:
+            return self.__outputs[output_id]
+        return None
+
+    def move_output_target_up_by_id(self, output_id: str, rebuild_caches=True):
+        if output_id not in self.__outputs:
+            return
+
+        # Bail if its a bad move
+        output = self.__outputs[output_id]
+        target_entry_id = output.target_entry_id
+        target_index = self.get_entry_index_in_history(target_entry_id)
+        if target_index == 0:
+            return
+
+        # Check if the new entry has an output
+        new_target_entry_id = self.get_entry_id_by_history_index(target_index - 1)
+        if new_target_entry_id in self.__entry_id_to_output_cache:
+            return
+
+        # Assign
+        output.target_entry_id = new_target_entry_id
+
+        # Rebuild caches
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def move_output_target_down_by_id(self, output_id: str, rebuild_caches=True):
+        if output_id not in self.__outputs:
+            return
+
+        # Bail if its a bad move
+        output = self.__outputs[output_id]
+        target_entry_id = output.target_entry_id
+        target_index = self.get_entry_index_in_history(target_entry_id)
+        if target_index == len(self.__history) - 1:
+            return
+
+        # Check if the new entry has an output
+        new_target_entry_id = self.get_entry_id_by_history_index(target_index + 1)
+        if new_target_entry_id in self.__entry_id_to_output_cache:
+            return
+
+        # Assign
+        output.target_entry_id = new_target_entry_id
+
+        # Rebuild caches
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def add_output_to_head(self, output: Output, rebuild_caches=True):
+        if output.unique_id in self.__outputs:
+            return
+
+        # Check if we already have an output targeting this entry
+        target_entry_id = self.get_most_recent_entry_id()
+        if target_entry_id in self.__entry_id_to_output_cache:
+            return
+
+        # Assign the data
+        output.target_entry_id = target_entry_id
+        self.__outputs[output.unique_id] = output
+
+        # Rebuild caches
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def edit_output(self, output: Output):
+        if output.unique_id not in self.__outputs:
+            return
+
+        self.__outputs[output.unique_id] = output
+
+        # Update our dynamic data store
+        self.__dynamic_data_store.update()
+        self.save_autosave()
+
+    def delete_output(self, output: Output, rebuild_caches=True):
+        if output.unique_id not in self.__outputs:
+            return
+
+        del self.__outputs[output.unique_id]
+
+        # Rebuild caches
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def get_entry_by_id(self, entry_id: str) -> Entry | None:
+        if entry_id in self.__entries:
+            return self.__entries[entry_id]
+        return None
+
+    def get_entry_revisions_for_id(self, entry_id: str) -> list[str]:
+        revision_id = self.__revision_indices[entry_id]
+        return self.__revisions[revision_id]
+
+    def get_most_recent_entry_id(self):
+        return self.__history[self.get_current_history_index()]
+
+    def get_root_entry_id_in_series(self, entry_id: str):
+        if entry_id not in self.__entries:
+            return None
+
+        revisions = self.get_entry_revisions_for_id(entry_id)
+        if revisions is None:
+            print("Badly formed revisions? Need to rebuild caches somewhere?")
+            return None
+
+        return revisions[0]
+
+    def get_most_recent_entry_id_in_series(self, entry_id: str):
+        return self.get_most_recent_entry_id_in_series_up_to_index(entry_id, self.get_current_history_index())
+
+    def get_most_recent_entry_id_in_series_up_to_index(self, entry_id: str, index: int) -> str | None:
+        if entry_id not in self.__entries:
+            return None
+
+        revisions = self.get_entry_revisions_for_id(entry_id)
+        if revisions is None:
+            print("Badly formed revisions? Need to rebuild caches somewhere?")
+            return None
+
+        indices = dict()
+        for entry_id in revisions:
+            indices[self.__history.index(entry_id)] = entry_id
+
+        try:
+            target_index = max(k for k in indices.keys() if k <= index)
+            return indices[target_index]
+        except ValueError:
+            return None
+
+    def get_entry_id_by_history_index(self, index: int) -> str | None:
+        if 0 <= index < len(self.__history):
+            return self.__history[index]
+        return None
+
+    def get_entries_for_character_and_category_at_current_history_index(self, character_id: str, category_id: str) -> list | None:
+        return self.get_entries_for_character_and_category_at_history_index(character_id, category_id, self.get_current_history_index())
+
+    def get_entries_for_character_and_category_at_history_index(self, character_id: str, category_id: str, target_index: int) -> list[str] | None:
+        if character_id not in self.__character_category_root_entry_cache or category_id not in self.__character_category_root_entry_cache[character_id]:
+            print("This really shouldn't happen.")
+            return None
+
+        # Get our root entries
+        root_entries = self.__character_category_root_entry_cache[character_id][category_id]
+        valid_entries = []
+        for root_entry in root_entries:
+            revisions = self.__revisions[root_entry]
+
+            # Loop through all our revisions
+            matching_revision = None
+            for revision_id in revisions:
+                index = self.get_entry_index_in_history(revision_id)
+
+                # Check their index is less than or equal to the current head
+                if index <= target_index:
+                    matching_revision = revision_id
+                else:
+                    break
+
+            # Store if valid
+            if matching_revision is not None:
+                valid_entries.append(matching_revision)
+
+        return valid_entries
+
+    def get_root_entry_ids(self):
+        return self.__revisions.keys()
+
+    def add_entry_at_head(self, entry: Entry, rebuild_caches=True):
+        target_index = self.get_current_history_index() + 1
+        self.__add_entry_at(entry, target_index, rebuild_caches=False)
+        self.set_current_history_index(target_index)
+
+    def __add_entry_at(self, entry: Entry, index: int, rebuild_caches=True):
+        if entry.unique_id not in self.__entries:
+            self.__entries[entry.unique_id] = entry
+
+            # Update parents and children - we assume that what we are given is correct!
+            if entry.parent_id is not None:
+                parent_entry = self.get_entry_by_id(entry.parent_id)
+                parent_entry.child_id = entry.unique_id
+            if entry.child_id is not None:
+                child_entry = self.get_entry_by_id(entry.child_id)
+                child_entry.parent_id = entry.unique_id
+
+            # Update history which will also trigger a cache recalculation
+            self.__add_to_history(entry.unique_id, index, rebuild_caches=rebuild_caches)
+
+    def edit_entry(self, entry: Entry):
+        if entry.unique_id not in self.__entries:
+            return
+
+        # Typically this would actually be the same entry as most operations in place edit the entry, but just in case
+        self.__entries[entry.unique_id] = entry
+
+        # Update our dynamic data store - the real reason this function exists
+        self.__dynamic_data_store.update()
+        self.save_autosave()
+
+    def move_entry_to(self, entry: Entry, index: int, rebuild_caches=True):
+        if entry.parent_id is None and entry.child_id is None:
+            self.__move_in_history(entry.unique_id, index, rebuild_caches=rebuild_caches)
+            return
+
+        current_index = self.get_entry_index_in_history(entry.unique_id)
+        if current_index == index:
+            return
+
+        # Need to check if our parent becomes our child
+        if index < current_index and entry.parent_id is not None:
+            old_parent_index = self.get_entry_index_in_history(entry.parent_id)
+
+            # Only continue if we are actually moving above our parent or into their space
+            if index <= old_parent_index:
+                old_parent = self.get_entry_by_id(entry.parent_id)
+
+                # Reassign
+                entry.parent_id = old_parent.parent_id
+                old_parent.parent_id = entry.unique_id
+                old_parent.child_id = entry.child_id
+                entry.child_id = old_parent.unique_id
+
+                # Also when appropriate, ensure our second degree relatives are notified
+                if entry.parent_id is not None:
+                    grand_parent = self.get_entry_by_id(entry.parent_id)
+                    grand_parent.child_id = entry.unique_id
+                if old_parent.child_id is not None:
+                    child = self.get_entry_by_id(old_parent.child_id)
+                    child.parent_id = old_parent.unique_id
+
+        # Need to check if our child becomes our parent
+        if index > current_index and entry.child_id is not None:
+            old_child_index = self.get_entry_index_in_history(entry.child_id)
+
+            # Only continue if we are actually moving below our child
+            if index > old_child_index:
+                old_child = self.get_entry_by_id(entry.child_id)
+
+                # Reassign
+                old_child.parent_id = entry.parent_id
+                entry.parent_id = old_child.unique_id
+                entry.child_id = old_child.child_id
+                old_child.child_id = entry.unique_id
+
+                # Also when appropriate, ensure our second degree relatives are notified
+                if old_child.parent_id is not None:
+                    grand_parent = self.get_entry_by_id(old_child.parent_id)
+                    grand_parent.child_id = old_child.unique_id
+                if entry.child_id is not None:
+                    child = self.get_entry_by_id(entry.child_id)
+                    child.parent_id = entry.unique_id
+
+        # Insert our change into history
+        self.__move_in_history(entry.unique_id, index, rebuild_caches=rebuild_caches)
+
+    def delete_entry_and_series(self, entry: Entry, rebuild_caches=True):
+        root_id = self.__revision_indices[entry.unique_id]
+        revisions = self.__revisions[root_id]
+
+        # Delete working backwards with no cache rebuild until the end
+        for entry_id in reversed(revisions):
+            entry = self.get_entry_by_id(entry_id)
+            self.delete_entry(entry, rebuild_caches=False)
+
+        # Rebuild caches
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def delete_entry(self, entry: Entry, rebuild_caches=True):
+        entry = self.get_entry_by_id(entry.unique_id)
+
+        # Handle dependency reordering - we assume that what we are given is correct!
+        parent_entry = self.get_entry_by_id(entry.parent_id)
+        child_entry = self.get_entry_by_id(entry.child_id)
+        if parent_entry is not None and child_entry is not None:  # Have parent and child
+            parent_entry.child_id = child_entry.unique_id
+            child_entry.parent_id = parent_entry.unique_id
+        elif parent_entry is not None:  # Have only a parent
+            parent_entry.child_id = None
+        elif child_entry is not None:  # Have only a child
+            child_entry.parent_id = None
+
+        # Handle if we have an output tagged to this entry
+        if entry.unique_id in self.__entry_id_to_output_cache:
+            output = self.get_output_by_id(self.__entry_id_to_output_cache[entry.unique_id])
+            current_index = self.__history.index(entry.unique_id)
+
+            # Handle which entry we are attempting to target based on our current position
+            if current_index == 0 or self.__history[current_index - 1] in self.__entry_id_to_output_cache:
+                self.delete_output(output, rebuild_caches=False)
+            else:
+                # Get our target information
+                target_entry_id = self.__history[current_index - 1]
+                output.target_entry_id = target_entry_id
+
+        # Handle deletion of entry
+        del self.__entries[entry.unique_id]
+        self.__delete_from_history(entry.unique_id, rebuild_caches=rebuild_caches)
+
+    def get_current_history_index(self) -> int:
+        return self.__history_index
+
+    def get_entry_index_in_history(self, entry_id: str) -> int | None:
+        if entry_id in self.__history:
+            return self.__history.index(entry_id)
+        return None
+
+    def get_length_of_history(self) -> int:
+        return len(self.__history)
+
+    def set_current_history_index(self, index, rebuild_caches=True):
+        if index < -1:
+            index = -1
+        elif index > len(self.__entries) - 1:
+            index = len(self.__entries) - 1
+
+        self.__history_index = index
+        if rebuild_caches:
+            self.__rebuild_caches()
+
+    def get_history(self):
+        return tuple(self.__history.copy())
+
+    def __add_to_history(self, entry_id: str, index=None, rebuild_caches=True):
+        if index is None:
+            index = self.__history_index + 1
+
+        # Insert entry at +1 from head
+        self.__history.insert(index, entry_id)
+
+        # Handle where our head pointer goes - we only need to change when our point of insertion is equal to or above the current head (visually according to list entries)
+        if index <= self.__history_index:
+            self.set_current_history_index(index, rebuild_caches=rebuild_caches)
+        elif rebuild_caches:
+            self.__rebuild_caches()
+
+    def __move_in_history(self, entry_id: str, target_index: int, rebuild_caches=True):
+        self.__delete_from_history(entry_id, rebuild_caches=False)
+        self.__add_to_history(entry_id, target_index, rebuild_caches=rebuild_caches)
+
+    def __delete_from_history(self, entry_id: str, rebuild_caches=True):
+        current_index = self.__history.index(entry_id)
+        self.__history.remove(entry_id)
+
+        # Handle where our head pointer goes - we only need to change when our point of insertion is equal to or above the current head (visually according to list entries)
+        if current_index <= self.__history_index:
+            self.set_current_history_index(self.__history_index - 1, rebuild_caches=rebuild_caches)
+        elif rebuild_caches:
+            self.__rebuild_caches()
+
+    def __rebuild_caches(self):
+        self.__revision_indices.clear()
+        self.__revisions.clear()
+        self.__character_category_root_entry_cache.clear()
+        self.__entry_id_to_output_cache.clear()
+
+        # Fix up our character category root cache
+        for character_id in self.__characters.keys():
+            self.__character_category_root_entry_cache[character_id] = dict()
+            character = self.get_character_by_id(character_id)
+            for category_id in character.categories:
+                self.__character_category_root_entry_cache[character_id][category_id] = []
+
+        # Bail if there's nothing to do - this fixes an odd bug where the history index == 0 but there is nothing... it shouldn't happen if the code was perfect
+        if len(self.__history) == 0:
+            return
+
+        # Loop through our entries and initialise our entry revision trackers
+        for i in range(len(self.__history)):
+            unique_key = self.__history[i]
+            entry = self.get_entry_by_id(unique_key)
+
+            # We are in a unique situation where we should be working from the root -> leaf for ALL entries, therefore we can make some assumptions (as long as keys are unique!!!)
+            if unique_key not in self.__revision_indices:
+                self.__revision_indices[unique_key] = unique_key
+                revisions_list = [unique_key]
+
+                # Loop through our revisions
+                while entry.child_id is not None:
+                    self.__revision_indices[entry.child_id] = unique_key
+                    revisions_list.append(entry.child_id)
+                    entry = self.get_entry_by_id(entry.child_id)
+                    if entry is None:
+                        print("WTF")
+
+                # Store revisions
+                self.__revisions[unique_key] = revisions_list
+
+                # Cache our knowledge regarding an entry's character and category so we don't have to look for them
+                self.__character_category_root_entry_cache[entry.character_id][entry.category_id].append(unique_key)
+
+        # Sort outputs based on their target index
+        for value in sorted(self.__outputs.values(), key=lambda item: self.get_entry_index_in_history(item.target_entry_id)):
+            self.__outputs.move_to_end(value.unique_id)
+
+        # Rebuild output contents in case they changed
+        last_seen = -1
+        for output_id, output in self.__outputs.items():
+            target_id = output.target_entry_id
+            target_index = self.get_entry_index_in_history(target_id)
+
+            # Rebuild our output contents
+            valid_entries = list()
+            for output_entry_index in range(last_seen + 1, target_index + 1):
+                output_member_id = self.get_entry_id_by_history_index(output_entry_index)
+                valid_entries.append(output_member_id)
+
+                # Determine if the entry is new to us and if so add it to 'ignored'
+                if output_member_id not in output.members and output_member_id not in output.ignored:
+                    output.ignored.append(output_member_id)
+
+            # Check for entries remembered by the output and remove any that dont exist
+            to_remove = list()
+            for output_member_id in output.members:
+                if output_member_id not in valid_entries:
+                    to_remove.append(output_member_id)
+            for output_member_id in to_remove:
+                output.members.remove(output_member_id)
+            to_remove = list()
+            for output_member_id in output.ignored:
+                if output_member_id not in valid_entries:
+                    to_remove.append(output_member_id)
+            for output_member_id in to_remove:
+                output.ignored.remove(output_member_id)
+
+            # Update our 'last seen' lower bound capture
+            last_seen = target_index
+
+        # Dynamic data store
+        self.__dynamic_data_store.update()
+
+        # Autosave
+        self.save_autosave()
+
+    def get_dynamic_data_for_current_index_and_character_id(self, character_id: str, private: bool):
+        return self.__dynamic_data_store.get_dynamic_data_for_character_id_at_index(self.__history_index, character_id, private)
+
+    def translate_using_dynamic_data_at_index_for_character(self, character_id: str, input_string: str, entry_id, index: int = -1):
+        if index is None or index == -1:
+            index = self.__history_index
+        return self.__dynamic_data_store.translate(index, character_id, entry_id, input_string)
+
+    def search_all(self, search_string: str) -> list:
+        results = []
+
+        # Tokenise our search string
+        search_tokens = search_helper.tokenize_string(search_string)
+        if search_tokens is None or len(search_tokens) == 0:
+            return results
+
+        # Search in entries
+        for entry in self.__entries.values():
+            entry_tokens = search_helper.tokenize_entry(entry)
+            if entry_tokens is None or len(entry_tokens) == 0:
+                continue
+
+            if search_helper.search_tokens(search_tokens, entry_tokens):
+                results.append(entry)
+
+        # Search in categories
+        for category in self.__categories.values():
+            category_tokens = search_helper.tokenize_category(category)
+            if category_tokens is None or len(search_tokens) == 0:
+                continue
+
+            if search_helper.search_tokens(search_tokens, category_tokens):
+                results.append(category)
+
+        return results
 
 
 if __name__ == '__main__':
+
     # Core
-    main = LitRPGTools()
+    main = LitRPGToolsEngine()
 
     # Trigger variable initialization
     main.start()
 
     # Run the console interaction
     main.run()
-

@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QFormLayout, QPushButton, QHBoxLayout, QListWidget, QAbstractItemView, QLineEdit, QCheckBox, QListWidgetItem
 
-from new.data import Entry, Category, Character
-from new.ui.desktop import entry_components
-from new.ui.desktop.category_components import create_category_form, add_or_edit_category, delete_category
-from new.ui.desktop.custom_generic_components import VisibleDynamicSplitPanel
+from data import Entry, Category, Character
+from ui.desktop import entry_components
+from ui.desktop.category_components import create_category_form, add_or_edit_category, delete_category
+from ui.desktop.custom_generic_components import VisibleDynamicSplitPanel
 
 if TYPE_CHECKING:
-    from new.ui.desktop.gui import LitRPGToolsDesktopGUI
-    from new.main import LitRPGToolsEngine
+    from ui.desktop.gui import LitRPGToolsDesktopGUI
+    from main import LitRPGToolsEngine
 
 
 class SearchTab(VisibleDynamicSplitPanel):
@@ -294,7 +294,7 @@ class SearchView(QScrollArea):
         category_controls = QWidget()
         category_controls_layout = QVBoxLayout()
         category_edit_button = QPushButton("Edit")
-        category_edit_button.clicked.connect(partial(add_or_edit_category, self._engine, self._parent, category))
+        category_edit_button.clicked.connect(partial(add_or_edit_category, self._engine, category))
         category_controls_layout.addWidget(category_edit_button)
         category_delete_button = QPushButton("Delete")
         category_delete_button.clicked.connect(partial(delete_category, self._engine, self._parent, category))

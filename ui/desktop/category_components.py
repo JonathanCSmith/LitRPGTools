@@ -6,14 +6,14 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QPushButton, QFormLayout, QLabel, QMessageBox, QMenu, QWidget, QHBoxLayout, QVBoxLayout, QListWidgetItem, QListWidget, QAbstractItemView, QScrollArea, QInputDialog
 from indexed import IndexedOrderedDict
 
-from new.data import Category, Entry, Character
-from new.ui.desktop import dynamic_data_components, entry_components
-from new.ui.desktop.custom_generic_components import add_checkbox_in_table_at, VisibleDynamicSplitPanel
+from data import Category, Entry, Character
+from ui.desktop import dynamic_data_components, entry_components
+from ui.desktop.custom_generic_components import add_checkbox_in_table_at, VisibleDynamicSplitPanel
 
 if TYPE_CHECKING:
-    from new.main import LitRPGToolsEngine
-    from new.ui.desktop.gui import LitRPGToolsDesktopGUI
-    from new.ui.desktop.character_components import CharacterTab
+    from main import LitRPGToolsEngine
+    from ui.desktop.gui import LitRPGToolsDesktopGUI
+    from ui.desktop.character_components import CharacterTab
 
 
 class CategoryTab(QWidget):
@@ -292,6 +292,9 @@ class CategoryView(QScrollArea):
         entry_update_button = QPushButton("Update")
         entry_update_button.clicked.connect(partial(self.__handle_update_callback, entry))
         entry_controls_layout.addWidget(entry_update_button)
+        entry_force_update_button = QPushButton("Force Update")
+        entry_force_update_button.clicked.connect(partial(self.__handle_force_update_callback, entry))
+        entry_controls_layout.addWidget(entry_force_update_button)
         entry_series_delete_button = QPushButton("Delete Series")
         entry_series_delete_button.clicked.connect(partial(self.__handle_delete_series_callback, entry))
         entry_controls_layout.addWidget(entry_series_delete_button)
@@ -326,6 +329,12 @@ class CategoryView(QScrollArea):
 
     def __handle_update_callback(self, entry: Entry):
         update = entry_components.update_entry(self._engine, self, entry)
+        if update is not None:
+            self._parent.set_curently_selected(self._engine.get_entry_index_in_history(update.unique_id))
+        self._parent.draw()
+
+    def __handle_force_update_callback(self, entry: Entry):
+        update = entry_components.force_update_entry_with_no_changes(self._engine, self, entry)
         if update is not None:
             self._parent.set_curently_selected(self._engine.get_entry_index_in_history(update.unique_id))
         self._parent.draw()
@@ -503,7 +512,9 @@ class CategoryDialog(QDialog):
                 continue
 
             # Determine if we should be using a large input format
-            contents[property_name] = self.__category_properties_table.cellWidget(row_index, 1).checkState() == Qt.CheckState.Checked
+            cell_widget = self.__category_properties_table.cellWidget(row_index, 1)
+            if cell_widget is not None:
+                contents[property_name] = cell_widget.checkState() == Qt.CheckState.Checked
 
         # Build our dynamic data
         modifications = dynamic_data_components.extract_dynamic_data_table_data(self.__dynamic_data_table)
@@ -513,7 +524,7 @@ class CategoryDialog(QDialog):
 
         # Build our dynamic data templates for entries
         template_modifications = dynamic_data_components.extract_dynamic_data_table_data(self.__dynamic_data_templates_table)
-        if modifications is None:
+        if template_modifications is None:
             self.__handle_cancel_callback()
             return
 
@@ -626,6 +637,15 @@ class CategoryDialog(QDialog):
             item = self.__category_properties_table.takeItem(row + 1, column)
             if item:
                 self.__category_properties_table.setItem(row - 1, column, item)
+
+            # Need to check for cell widgets and handle
+            else:
+                cell_widget = self.__category_properties_table.cellWidget(row + 1, column)
+                if isinstance(cell_widget, QCheckBox):
+                    check_box = QCheckBox()
+                    check_box.setChecked(cell_widget.isChecked())
+                    self.__category_properties_table.setCellWidget(row - 1, column, check_box)
+
         self.__category_properties_table.removeRow(row + 1)
 
     def __move_row_down(self, row):
@@ -638,6 +658,15 @@ class CategoryDialog(QDialog):
             item = self.__category_properties_table.takeItem(row, column)
             if item:
                 self.__category_properties_table.setItem(row + 1, column, item)
+
+            # Need to check for cell widgets and handle
+            else:
+                cell_widget = self.__category_properties_table.cellWidget(row, column)
+                if isinstance(cell_widget, QCheckBox):
+                    check_box = QCheckBox()
+                    check_box.setChecked(cell_widget.isChecked())
+                    self.__category_properties_table.setCellWidget(row + 1, column, check_box)
+
         self.__category_properties_table.removeRow(row)
 
 

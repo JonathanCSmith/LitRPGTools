@@ -1,7 +1,7 @@
 import math
 import string
 
-from new.data import Entry, Category
+from data import Entry, Category
 
 
 def tokenize_string(search_string: str) -> list | None:
