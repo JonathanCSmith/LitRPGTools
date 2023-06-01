@@ -1,5 +1,5 @@
 import re
-from typing import TYPE_CHECKING, Dict, Any, Tuple
+from typing import TYPE_CHECKING, Dict, Any, Tuple, List
 
 from data import Entry, Category
 
@@ -28,6 +28,7 @@ class DynamicDataStore:
         self.__value_store: Dict[str, Dict[int, Dict[str, Any]]] = dict()
         self.__final_value_store: Dict[str, Dict[int, Dict[str, Any]]] = dict()
         self.__function_store: Dict[str, Dict[int, Dict[str, Tuple[str, bool, str]]]] = dict()
+        self.__character_category_flags: Dict[str, List[str]] = dict()
 
         self.__debug = True
 
@@ -70,11 +71,11 @@ class DynamicDataStore:
         self.__value_store.clear()
         self.__final_value_store.clear()
         self.__function_store.clear()
+        self.__character_category_flags.clear()
 
         # Loop through entries, skip when not relevant
         characters = self.__engine.get_characters()
         for history_index, entry_id in enumerate(self.__engine.get_history()):
-
             # Preallocate our caches
             if history_index == 0:
                 for character in characters:
@@ -84,6 +85,7 @@ class DynamicDataStore:
                     self.__final_value_store[character.unique_id][0] = dict()
                     self.__function_store[character.unique_id] = dict()
                     self.__function_store[character.unique_id][0] = dict()
+                    self.__character_category_flags[character.unique_id] = list()
 
             # We always copy our data from before or create a new dict for the final cache
             else:
@@ -97,6 +99,15 @@ class DynamicDataStore:
             character = self.__engine.get_character_by_id(entry.character_id)
             category = self.__engine.get_category_by_id(entry.category_id)
 
+            # Check to see if the category has been initialised
+            if category.name not in self.__character_category_flags[character.unique_id]:
+                self.__extract_dynamic_data_from_category(
+                    self.__function_store[character.unique_id][history_index],
+                    self.__value_store[character.unique_id][history_index],
+                    self.__final_value_store[character.unique_id][history_index],
+                    category)
+                self.__character_category_flags[character.unique_id].append(category.name)
+
             # Get the dynamic data from this entry and it's category if it's the first entry in the lineage
             self.__extract_dynamic_data_from_entry(
                 self.__function_store[character.unique_id][history_index],
@@ -105,8 +116,17 @@ class DynamicDataStore:
                 category,
                 entry)
 
-            # Now we need to evaluate final data for a character over all categories
+            # Now we need to evaluate final type dynamic data for each lineage
             for category_id in character.categories:
+                # Evaluate the category specific final type dynamic data
+                self.__extract_dynamic_data_from_category(
+                    self.__function_store[character.unique_id][history_index],
+                    self.__value_store[character.unique_id][history_index],
+                    self.__final_value_store[character.unique_id][history_index],
+                    category,
+                    is_finals=True)
+
+                # Get the entries that need to have their final type dynamic data evaluated
                 entries = self.__engine.get_entries_for_character_and_category_at_history_index(character.unique_id, category_id, history_index)
 
                 # Loop through the latest entries and add to our final data
@@ -121,29 +141,47 @@ class DynamicDataStore:
                         final_entry,
                         is_finals=True)
 
-    def __extract_dynamic_data_from_entry(self, function_store: dict, value_store: dict, final_value_store: dict, category: Category, entry: Entry, is_finals: bool = False):
-        # Skip any more logic if the entry doesn't apply to this character
-        root_entry_id = self.__engine.get_root_entry_id_in_series(entry.unique_id)
+    def __extract_dynamic_data_from_category(self, function_store: dict, value_store: dict, final_value_store: dict, category: Category, is_finals: bool = False):
+        # is_finals is a switch that toggles what dynamic data types we are looking for.
 
-        # We don't want to evaluate final data just yet - that's done at the lineage level later, so for now we need to ignore that data
         target_data = dict()
+
+        # We do not extract 'FINAL' type data operations unless it's the final entry in the context of the current history index.
         for key, data in category.dynamic_data_operations.items():
             if is_finals and data[1] == "FINAL":
                 target_data[key] = data
             elif not is_finals and data[1] != "FINAL":
                 target_data[key] = data
-        for key, data in category.dynamic_data_operation_templates.items():
-            if is_finals and data[1] == "FINAL":
-                target_data[key] = data
-            elif not is_finals and data[1] != "FINAL":
-                target_data[key] = data
 
-        # Calculate any templated dynamic data from category - this should only be done once!
-        if entry.unique_id == root_entry_id:
-            self.__calculate_dynamic_data_operation(function_store, value_store, final_value_store, target_data, root_entry_id)
+        # Calculate
+        self.__calculate_dynamic_data_operation(function_store, value_store, final_value_store, target_data)
 
-        # Extract finals from entry data too, clear the original others data so it isn't reapplied and overwriting data
+    def __extract_dynamic_data_from_entry(self, function_store: dict, value_store: dict, final_value_store: dict, category: Category, entry: Entry, is_finals: bool = False):
+        # is_finals is a switch that toggles what dynamic data types we are looking for.
+
+        # Prealloc dict for data to be parsed
+        # NOTE - Final data and non final data are mutually exclusive!
         target_data = dict()
+
+        # If we are the root in a lineage, we should be evaluating the category template dynamic data
+        # Basically, this should only be done once in a lineage.
+        root_entry_id = self.__engine.get_root_entry_id_in_series(entry.unique_id)
+        if root_entry_id == entry.unique_id:
+
+            # Depending on the state of the is_final switch, we decide what data should be sent for calculation
+            for key, data in category.dynamic_data_operation_templates.items():
+                if is_finals and data[1] == "FINAL":
+                    target_data[key] = data
+                elif not is_finals and data[1] != "FINAL":
+                    target_data[key] = data
+
+        # In this situation, we aren't the root entry in a lineage, but we are in the is_final state, which means we should evaluate regardless
+        elif is_finals:
+            for key, data in category.dynamic_data_operation_templates.items():
+                if data[1] == "FINAL":  # Only interested in the FINAL entries as we are in the 'is_final' state
+                    target_data[key] = data
+
+        # Extract relevant dynamic data from entry data too
         for key, data in entry.dynamic_data_operations.items():
             if is_finals and data[1] == "FINAL":
                 target_data[key] = data
@@ -304,7 +342,7 @@ class DynamicDataStore:
                 case "DIVIDE INTEGER": target_data_store[key] //= int(outcome)
                 case "DIVIDE FLOAT": target_data_store[key] /= float(outcome)
                 case _:
-                    raise Exception("INVALID OPERATION TYPE")
+                    pass
 
         except Exception as ex:
             print("Unable to perform operation action for operation: " + str(operation))

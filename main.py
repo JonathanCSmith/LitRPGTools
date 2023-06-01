@@ -17,33 +17,26 @@ from ui.desktop.gui import LitRPGToolsDesktopGUI
 from utils import handle_old_save_file_loader
 
 """
-TODO: Changes on character name didn't propagate (but were in save file)
-TODO: Display Hidden not working in main category type display?
+High Priority:
+TODO: Filters on the history view.
+TODO: Changes on character name didn't propagate (but were in save file) - update issue?
 TODO: Enter = run search
+TODO: Autosave to remember default save path?
+TODO: If an entry is not updatable then dont display the update buttons (note, force update should still be allowed!)
 
+Low Priority:
 TODO: Search shouldn't be tokenised??? 
 TODO: Catch likely candidates (e.g. '[string]') and assume we intended it a string literal?
-
-TODO: Fill in options (i.e. for create entry) when there is only one choice
 TODO: Create entry everywhere with context applied?
-TODO: Is disabled should be hidden???
-TODO: Autosave to remember default save path?
-
+TODO: Fill in options (i.e. for create entry) when there is only one choice
 TODO: OS X saving seems to put it in the wrong directory (uses relative to cwd?)
-
 TODO: Expression creator!
-
-TODO: History log text inject category info etc etc
-TODO: Test everything by updating existing work
-
-TODO: Test everything
-TODO: Do I need to have so much in the update functions?
-TODO: Validate 'current selection' and 'head' behaviour for all actions
+TODO: Update function logic check + streamline?
 TODO: Better notifications when things go wrong
-TODO: Help tooltip for creation & update text special stuff (i.e. any token stuff I add in)
-
+TODO: History log text inject category info etc etc
 TODO: Replace in search?
 TODO: Mobile?
+TODO: Web
 TODO: Bullet Points and Bold?
 TODO: Switch to Deltas?
 TODO: Versionable Categories?

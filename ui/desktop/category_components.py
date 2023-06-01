@@ -413,7 +413,7 @@ class CategoryDialog(QDialog):
         self.__layout.addRow("Category displayed in Overview?", self.__print_to_overview_button)
         self.__layout.addRow("Can entries change over time?", self.__can_change_over_time)
         self.__layout.addRow("Is Singleton?", self.__is_singleton)
-        self.__layout.addRow("", QLabel("The next section deals with dynamic data. Only use if you understand what is going on."))
+        self.__layout.addRow("", QLabel("The next section deals with dynamic data specific to the CATEGORY. Only use if you understand what is going on."))
         self.__layout.addRow("Dynamic Data Modifications", self.__dynamic_data_table)
         self.__layout.addRow("", QLabel("The next section deals with dynamic data modification templates for all entries. Only use if you understand what is going on."))
         self.__layout.addRow("Dynamic Data Modification Templates", self.__dynamic_data_templates_table)

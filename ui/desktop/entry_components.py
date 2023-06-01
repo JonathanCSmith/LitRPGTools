@@ -573,8 +573,23 @@ def delete_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
 
 
 def duplicate_entry(engine: 'LitRPGToolsEngine', entry: Entry):
+    category = engine.get_category_by_id(entry.category_id)
+
+    # Calculate which characters should be displayed
+    target_characters = dict()
+    if category.single_entry_only:
+        for character in engine.get_characters():
+            state = engine.get_entries_for_character_and_category_at_current_history_index(character.unique_id, category.unique_id)
+            if state is None or len(state) == 0:
+                target_characters[character.unique_id] = character
+
+    else:
+        for character in engine.get_characters():
+            target_characters[character.unique_id] = character
+
+    # Run selection against our target characters
     from ui.desktop.character_components import CharacterSelectorDialog
-    character_dialog = CharacterSelectorDialog(engine)
+    character_dialog = CharacterSelectorDialog(target_characters)
     character_dialog.exec()
     if not character_dialog.success:
         return

@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict
 
 from PyQt6.QtCore import Qt, QSignalBlocker
 from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QPushButton, QFormLayout, QTableWidgetItem, QHeaderView, QMessageBox, QComboBox, QTabWidget, QVBoxLayout, QWidget, QCheckBox
@@ -210,7 +210,7 @@ class CharacterDialog(QDialog):
                 state = category.unique_id in self.__character.categories
 
             # Add a checkbox to allow the user to register the interest of this character in
-            add_checkbox_in_table_at(self.__character_categories_table, 0, state=state, callback=partial(self.__handle_toggle_category_callback, category.unique_id))
+            add_checkbox_in_table_at(self.__character_categories_table, i, state=state, callback=partial(self.__handle_toggle_category_callback, category.unique_id))
 
             # Add +ves to our cache for output
             if state:
@@ -241,9 +241,8 @@ class CharacterDialog(QDialog):
 
 
 class CharacterSelectorDialog(QDialog):
-    def __init__(self, engine: 'LitRPGToolsEngine'):
+    def __init__(self, characters: Dict[str, Character]):
         super().__init__()
-        self.__engine = engine
         self.success = False
         self.character_id = None
 
@@ -252,9 +251,11 @@ class CharacterSelectorDialog(QDialog):
         self.__character_selector.addItem("Please Select A Character")
 
         # Fill in our character data
-        for index, character in enumerate(self.__engine.get_characters()):
+        row_count = 0
+        for character_id, character in characters.items():
             self.__character_selector.addItem(character.name)
-            self.__character_selector.setItemData(index + 1, character.unique_id, Qt.ItemDataRole.UserRole)
+            row_count += 1
+            self.__character_selector.setItemData(row_count, character.unique_id, Qt.ItemDataRole.UserRole)
 
         # Buttons
         self.__cancel_button = QPushButton("Cancel")

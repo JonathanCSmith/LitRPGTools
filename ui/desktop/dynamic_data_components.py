@@ -1,7 +1,9 @@
 from functools import partial
 from typing import Dict, Tuple, TYPE_CHECKING
 
-from PyQt6.QtWidgets import QTableWidgetItem, QTableWidget, QHeaderView, QComboBox, QFormLayout, QWidget, QLabel, QScrollArea, QVBoxLayout, QCheckBox, QHBoxLayout
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QTableWidgetItem, QTableWidget, QHeaderView, QComboBox, QFormLayout, QWidget, QLabel, QScrollArea, QVBoxLayout, QCheckBox, QHBoxLayout, QMenu
 
 from ui.desktop.generic_components import LessIntrusiveComboBox
 
@@ -121,7 +123,97 @@ def create_dynamic_data_table(readonly: bool = False) -> QTableWidget:
         dynamic_modifications_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     else:
         dynamic_modifications_table.cellChanged.connect(partial(handle_dynamic_data_table_cell_changed_callback, dynamic_modifications_table))
+        dynamic_modifications_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        dynamic_modifications_table.customContextMenuRequested.connect(partial(create_dynamic_data_table_context_menu, dynamic_modifications_table))
+
     return dynamic_modifications_table
+
+
+def create_dynamic_data_table_context_menu(table: QTableWidget, pos):
+    # Get the pertinent row or bail
+    if table.itemAt(pos) is None:
+        return
+    row = table.itemAt(pos).row()
+
+    # Create some actions and map these to functions
+    insert_above_action = QAction("Insert Row Above")
+    insert_above_action.triggered.connect(partial(dynamic_data_table_insert_row, table, row))
+    insert_row_below_action = QAction("Insert Row Below")
+    insert_row_below_action.triggered.connect(partial(dynamic_data_table_insert_row, table, row + 1))
+    move_row_up_action = QAction("Move Row Up")
+    move_row_up_action.triggered.connect(partial(dynamic_data_table_move_row_up, table, row))
+    move_row_down_action = QAction("Move Row Down")
+    move_row_down_action.triggered.connect(partial(dynamic_data_table_move_row_down, table, row))
+
+    # Context menu
+    menu = QMenu()
+    menu.addAction(insert_above_action)
+    menu.addAction(insert_row_below_action)
+    if row != 0:
+        menu.addAction(move_row_up_action)
+    if row != table.rowCount() - 1:
+        menu.addAction(move_row_down_action)
+    menu.exec(table.mapToGlobal(pos))
+
+
+def dynamic_data_table_insert_row(table: QTableWidget, row: int):
+    table.insertRow(row)
+    dynamic_modification_type_selector = create_dynamic_operation_type_selector(table)
+    table.setCellWidget(row, 1, dynamic_modification_type_selector)
+    scope_selector = create_scope_selector(table)
+    table.setCellWidget(row, 2, scope_selector)
+
+
+def dynamic_data_table_move_row_up(table: QTableWidget, row: int):
+    table.insertRow(row - 1)
+
+    # Key
+    key_item = table.takeItem(row + 1, 0)
+    table.setItem(row - 1, 0, key_item)
+
+    # Data type
+    selected_data_type = table.cellWidget(row + 1, 1).currentText()
+    data_type_selector = create_dynamic_operation_type_selector(table)
+    data_type_selector.setCurrentText(selected_data_type)
+    table.setCellWidget(row - 1, 1, data_type_selector)
+
+    # Scope
+    selected_scope = table.cellWidget(row + 1, 2).currentText()
+    scope_selector = create_scope_selector(table)
+    scope_selector.setCurrentText(selected_scope)
+    table.setCellWidget(row - 1, 2, scope_selector)
+
+    # Value
+    value_item = table.takeItem(row + 1, 3)
+    table.setItem(row - 1, 3, value_item)
+
+    table.removeRow(row + 1)
+
+
+def dynamic_data_table_move_row_down(table: QTableWidget, row: int):
+    table.insertRow(row + 2)
+
+    # Key
+    key_item = table.takeItem(row, 0)
+    table.setItem(row + 2, 0, key_item)
+
+    # Data type
+    selected_data_type = table.cellWidget(row, 1).currentText()
+    data_type_selector = create_dynamic_operation_type_selector(table)
+    data_type_selector.setCurrentText(selected_data_type)
+    table.setCellWidget(row + 2, 1, data_type_selector)
+
+    # Scope
+    selected_scope = table.cellWidget(row, 2).currentText()
+    scope_selector = create_scope_selector(table)
+    scope_selector.setCurrentText(selected_scope)
+    table.setCellWidget(row + 2, 2, scope_selector)
+
+    # Value
+    value_item = table.takeItem(row, 3)
+    table.setItem(row + 2, 3, value_item)
+
+    table.removeRow(row)
 
 
 def fill_dynamic_modifications_table(table: QTableWidget, data: Dict[str, Tuple[str, bool, str]], readonly: bool = False):
