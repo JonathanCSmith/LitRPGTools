@@ -7,25 +7,25 @@ from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QTableWidgetItem, 
 from indexed import IndexedOrderedDict
 
 from data import Category, Entry, Character
-from ui.desktop import dynamic_data_components, entry_components
-from ui.desktop.custom_generic_components import add_checkbox_in_table_at, VisibleDynamicSplitPanel
+from desktop import dynamic_data_components, entry_components
+from desktop.custom_generic_components import add_checkbox_in_table_at, VisibleDynamicSplitPanel
 
 if TYPE_CHECKING:
-    from main import LitRPGToolsEngine
-    from ui.desktop.gui import LitRPGToolsDesktopGUI
-    from ui.desktop.character_components import CharacterTab
+    from data_manager import LitRPGToolsEngine
+    from desktop.gui import LitRPGToolsDesktopGUI
+    from desktop.character_components import CharacterTab
 
 
 class CategoryTab(QWidget):
-    def __init__(self, parent: 'CharacterTab', engine: 'LitRPGToolsEngine', category_id: str):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', parent_gui_object: 'CharacterTab', category_id: str):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
+        self.parent_gui_object = parent_gui_object
         self.__category_id = category_id
 
         # Main components
-        self._sidebar_widget = CategorySidebar(self, engine)
-        self._view_widget = CategoryView(self, engine)
+        self._sidebar_widget = CategorySidebar(self.root_gui_object, self)
+        self._view_widget = CategoryView(self.root_gui_object, self)
 
         # Core display set up
         self.__display = VisibleDynamicSplitPanel()
@@ -47,7 +47,7 @@ class CategoryTab(QWidget):
         self._view_widget.draw()
 
     def get_character_id(self):
-        return self._parent.character_id
+        return self.parent_gui_object.character_id
 
     def get_category_id(self):
         return self.__category_id
@@ -72,10 +72,10 @@ class CategoryTab(QWidget):
 
 
 class CategorySidebar(QWidget):
-    def __init__(self, parent: CategoryTab, engine: 'LitRPGToolsEngine'):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', parent_gui_object: CategoryTab):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
+        self.parent_gui_object = parent_gui_object
 
         # Actual display of what we wanted to display (as per above).
         self.__active_list = QListWidget()
@@ -108,7 +108,7 @@ class CategorySidebar(QWidget):
         # TODO I keep seeing 'unselections' pop up (meaning a lot of things become None that shouldn't). Perhaps keep some memory here?
 
         self.__paint_list()
-        self._parent._selection_changed()
+        self.parent_gui_object._selection_changed()
 
     def __paint_list(self):
         for i in range(self.__active_list.count()):
@@ -117,7 +117,7 @@ class CategorySidebar(QWidget):
 
     def __get_list_row_colour_from_context(self, index) -> Qt.GlobalColor:
         # First check if it's our active 'head'
-        if self._engine.get_current_history_index() == index:
+        if self.root_gui_object.data_manager.get_current_history_index() == index:
             return Qt.GlobalColor.blue
 
         # Check for a familial relationship with the currently selected
@@ -126,15 +126,16 @@ class CategorySidebar(QWidget):
             return Qt.GlobalColor.darkMagenta
         entry_id = item.data(Qt.ItemDataRole.UserRole)
 
-        familial_relatives = self._engine.get_entry_revisions_for_id(entry_id)
+        familial_relatives = self.root_gui_object.data_manager.get_entry_revisions_for_id(entry_id)
         if self.__active_list.item(index).data(Qt.ItemDataRole.UserRole) in familial_relatives:
             return Qt.GlobalColor.yellow
 
         return Qt.GlobalColor.white
 
     def __handle_display_hidden_callback(self):
-        self.__view_hidden = not self.__display_hidden_checkbox.isChecked()
-        self._parent._selection_changed()
+        self.__view_hidden = self.__display_hidden_checkbox.isChecked()
+        self.draw()
+        self.parent_gui_object._selection_changed()
 
     def __handle_view_dynamic_data_relative_callback(self):
         self.view_dynamic_relative = self.__view_dynamic_data_relative_checkbox.isChecked()
@@ -143,7 +144,7 @@ class CategorySidebar(QWidget):
             self.view_dynamic_absolute = not self.view_dynamic_relative
             self.__view_dynamic_data_absolute_checkbox.setChecked(self.view_dynamic_absolute)
             self.__view_dynamic_data_absolute_checkbox.blockSignals(False)
-        self._parent._selection_changed()
+        self.parent_gui_object._selection_changed()
 
     def __handle_view_dynamic_data_absolute_callback(self):
         self.view_dynamic_absolute = self.__view_dynamic_data_absolute_checkbox.isChecked()
@@ -152,7 +153,7 @@ class CategorySidebar(QWidget):
             self.view_dynamic_relative = not self.view_dynamic_absolute
             self.__view_dynamic_data_relative_checkbox.setChecked(self.view_dynamic_relative)
             self.__view_dynamic_data_relative_checkbox.blockSignals(False)
-        self._parent._selection_changed()
+        self.parent_gui_object._selection_changed()
 
     def draw(self):
         self.__fill_active_list()
@@ -162,15 +163,15 @@ class CategorySidebar(QWidget):
         current_selection = self.__active_list.currentRow()
 
         # Pre-fetch
-        character = self._engine.get_character_by_id(self._parent.get_character_id())
-        category = self._engine.get_category_by_id(self._parent.get_category_id())
-        entries = self._engine.get_entries_for_character_and_category_at_current_history_index(character.unique_id, category.unique_id)
+        character = self.root_gui_object.data_manager.get_character_by_id(self.parent_gui_object.get_character_id())
+        category = self.root_gui_object.data_manager.get_category_by_id(self.parent_gui_object.get_category_id())
+        entries = self.root_gui_object.data_manager.get_entries_for_character_and_category_at_current_history_index(character.unique_id, category.unique_id)
 
         # Switch what information we populate our list with depending on the view selector
         self.__fill_list(character, category, entries)
 
         # Handle the unique case where we added our first entry
-        if current_selection == -1 and self._engine.get_length_of_history() > 0:
+        if current_selection == -1 and self.root_gui_object.data_manager.get_length_of_history() > 0:
             current_selection = 0
 
         # Force an update so our text colour can be rendered
@@ -182,8 +183,8 @@ class CategorySidebar(QWidget):
 
         # Loop through our entries and add them
         for entry_id in entries:
-            entry = self._engine.get_entry_by_id(entry_id)
-            history_index = self._engine.get_entry_index_in_history(entry_id)
+            entry = self.root_gui_object.data_manager.get_entry_by_id(entry_id)
+            history_index = self.root_gui_object.data_manager.get_entry_index_in_history(entry_id)
 
             # Skip if hidden and we aren't displaying hidden
             if entry.is_disabled and not self.__view_hidden:
@@ -215,21 +216,18 @@ class CategorySidebar(QWidget):
     def get_should_display_hidden(self):
         return self.__view_hidden
 
-    def get_should_display_dynamic(self):
-        return self.__view_dynamic
-
 
 class CategoryView(QScrollArea):
-    def __init__(self, parent: CategoryTab, engine: 'LitRPGToolsEngine'):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', parent_gui_object: CategoryTab):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
+        self.parent_gui_object = parent_gui_object
 
         # Current index box
         self.__current_info = QWidget()
         self.__current_info_layout = QFormLayout()
         self.__current_info.setLayout(self.__current_info_layout)
-        self.__current_info_layout.addRow("Current Index in History:", QLabel(str(self._engine.get_current_history_index())))
+        self.__current_info_layout.addRow("Current Index in History:", QLabel(str(self.root_gui_object.data_manager.get_current_history_index())))
 
         # Results
         self.__results_view = QWidget()
@@ -253,31 +251,31 @@ class CategoryView(QScrollArea):
                     continue
 
         # Retrieve our selection
-        item = self._parent.get_currently_selected()
+        item = self.parent_gui_object.get_currently_selected()
         if item is None:
             return
         entry_id = item.data(Qt.ItemDataRole.UserRole)
-        entry = self._engine.get_entry_by_id(entry_id)
+        entry = self.root_gui_object.data_manager.get_entry_by_id(entry_id)
         self.__draw_entry(entry)
 
     def __draw_entry(self, entry: Entry):
-        character = self._engine.get_character_by_id(entry.character_id)
-        category = self._engine.get_category_by_id(entry.category_id)
+        character = self.root_gui_object.data_manager.get_character_by_id(entry.character_id)
+        category = self.root_gui_object.data_manager.get_category_by_id(entry.category_id)
 
         # Switch which dynamic data we display depending on what button is ticked
-        current_index = self._engine.get_entry_index_in_history(entry.unique_id)
+        current_index = self.root_gui_object.data_manager.get_entry_index_in_history(entry.unique_id)
         target_index = None
         should_display_dynamic_data = False
-        if self._parent.get_should_display_dynamic_absolute():
+        if self.parent_gui_object.get_should_display_dynamic_absolute():
             should_display_dynamic_data = True
-        elif self._parent.get_should_display_dynamic_relative():
-            target_index = self._engine.get_current_history_index()
+        elif self.parent_gui_object.get_should_display_dynamic_relative():
+            target_index = self.root_gui_object.data_manager.get_current_history_index()
             should_display_dynamic_data = True
 
         # Form
         entry_form = QWidget()
         entry_form_layout = QFormLayout()
-        entry_components.create_entry_form(self._engine, entry_form_layout, character, category, entry, current_index, header=True, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
+        entry_components.create_entry_form(self.root_gui_object.data_manager, entry_form_layout, character, category, entry, current_index, header=True, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
         entry_form.setLayout(entry_form_layout)
 
         # Controls
@@ -321,44 +319,44 @@ class CategoryView(QScrollArea):
         self.__results_view_layout.setStretch(1, 100)
 
     def __handle_set_as_head_callback(self, entry: Entry):
-        entry_components.set_entry_as_head(self._engine, entry)
+        entry_components.set_entry_as_head(self.root_gui_object.data_manager, entry)
 
     def __handle_edit_callback(self, entry: Entry):
-        entry_components.edit_entry(self._engine, self, entry)
-        self._parent.draw()
+        entry_components.edit_entry(self.root_gui_object.data_manager, self, entry)
+        self.parent_gui_object.draw()
 
     def __handle_update_callback(self, entry: Entry):
-        update = entry_components.update_entry(self._engine, self, entry)
+        update = entry_components.update_entry(self.root_gui_object.data_manager, self, entry)
         if update is not None:
-            self._parent.set_curently_selected(self._engine.get_entry_index_in_history(update.unique_id))
-        self._parent.draw()
+            self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_entry_index_in_history(update.unique_id))
+        self.parent_gui_object.draw()
 
     def __handle_force_update_callback(self, entry: Entry):
-        update = entry_components.force_update_entry_with_no_changes(self._engine, self, entry)
+        update = entry_components.force_update_entry_with_no_changes(self.root_gui_object.data_manager, self, entry)
         if update is not None:
-            self._parent.set_curently_selected(self._engine.get_entry_index_in_history(update.unique_id))
-        self._parent.draw()
+            self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_entry_index_in_history(update.unique_id))
+        self.parent_gui_object.draw()
 
     def __handle_delete_series_callback(self, entry: Entry):
-        entry_components.delete_entry_series(self._engine, self, entry)
-        self._parent.set_curently_selected(self._engine.get_current_history_index())
-        self._parent.draw()
+        entry_components.delete_entry_series(self.root_gui_object.data_manager, self, entry)
+        self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_current_history_index())
+        self.parent_gui_object.draw()
 
     def __handle_delete_callback(self, entry: Entry):
-        entry_components.delete_entry(self._engine, self, entry)
-        self._parent.set_curently_selected(self._engine.get_current_history_index())
-        self._parent.draw()
+        entry_components.delete_entry(self.root_gui_object.data_manager, self, entry)
+        self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_current_history_index())
+        self.parent_gui_object.draw()
 
     def __handle_duplicate_callback(self, entry: Entry):
-        entry_components.duplicate_entry(self._engine, entry)
-        self._parent.set_curently_selected(self._engine.get_current_history_index())
-        self._parent.draw()
+        entry_components.duplicate_entry(self.root_gui_object.data_manager, entry)
+        self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_current_history_index())
+        self.parent_gui_object.draw()
 
 
 class CategoryDialog(QDialog):
-    def __init__(self, engine, category: Category = None):
+    def __init__(self, gui: 'LitRPGToolsDesktopGUI', category: Category = None):
         super(CategoryDialog, self).__init__()
-        self.__engine = engine
+        self.gui = gui
         self.__category = category
 
         # Outputs
@@ -694,9 +692,9 @@ def add_or_edit_category(engine: 'LitRPGToolsEngine', category: Category | None)
     return category
 
 
-def delete_category(engine: 'LitRPGToolsEngine', parent: 'LitRPGToolsDesktopGUI', category: Category):
-    engine.delete_category(category)
-    parent.handle_update()
+def delete_category(parent: 'LitRPGToolsDesktopGUI', category: Category):
+    parent.data_manager.delete_category(category)
+    parent.draw()
 
 
 def create_category_form(target_layout, category: Category):

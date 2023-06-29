@@ -1,0 +1,24 @@
+<!-- Need logout & link patreon buttons -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Home</title>
+</head>
+<body>
+    <h1>User Controls</h1>
+    <div>
+        {% if user %}
+        <a href="{{ url_for('profile') }}">
+            <button>Profile</button>
+        </a>
+        <a href="{{ url_for('profile.logout') }}">
+            <button>Log Out</button>
+        </a>
+        {% else %}
+        <a href="{{ url_for('profile.login') }}">
+            <button>Log In</button>
+        </a>
+        {% endif %}
+    </div>
+</body>
+</html>

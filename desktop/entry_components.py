@@ -6,12 +6,12 @@ from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import QDialog, QPushButton, QFormLayout, QLineEdit, QPlainTextEdit, QComboBox, QMessageBox, QLabel, QCheckBox, QWidget, QVBoxLayout, QHBoxLayout
 
 from data import Entry, Character, Category
-from ui.desktop import dynamic_data_components
-from ui.desktop.custom_generic_components import ShadedWidget
-from ui.desktop.spelling_components import SpellTextEdit, SpellTextEditSingleLine
+from desktop import dynamic_data_components
+from desktop.custom_generic_components import ShadedWidget
+from desktop.spelling_components import SpellTextEdit, SpellTextEditSingleLine
 
 if TYPE_CHECKING:
-    from main import LitRPGToolsEngine
+    from data_manager import LitRPGToolsEngine
 
 
 class EntryDialog(QDialog):
@@ -585,10 +585,11 @@ def duplicate_entry(engine: 'LitRPGToolsEngine', entry: Entry):
 
     else:
         for character in engine.get_characters():
-            target_characters[character.unique_id] = character
+            if entry.category_id in character.categories:
+                target_characters[character.unique_id] = character
 
     # Run selection against our target characters
-    from ui.desktop.character_components import CharacterSelectorDialog
+    from desktop.character_components import CharacterSelectorDialog
     character_dialog = CharacterSelectorDialog(target_characters)
     character_dialog.exec()
     if not character_dialog.success:

@@ -177,3 +177,4 @@ class DataFile:
                         entry["dynamic_data_operations"][dynamic_data_key][1] = "INSTANT"
 
         return json_data
+

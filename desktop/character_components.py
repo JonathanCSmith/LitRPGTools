@@ -6,20 +6,19 @@ from PyQt6.QtCore import Qt, QSignalBlocker
 from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QPushButton, QFormLayout, QTableWidgetItem, QHeaderView, QMessageBox, QComboBox, QTabWidget, QVBoxLayout, QWidget, QCheckBox
 
 from data import Character
-from ui.desktop.category_components import CategoryTab
-from ui.desktop.custom_generic_components import add_checkbox_in_table_at
-from ui.desktop.dynamic_data_components import DynamicDataTab
+from desktop.category_components import CategoryTab
+from desktop.custom_generic_components import add_checkbox_in_table_at
+from desktop.dynamic_data_components import DynamicDataTab
 
 if TYPE_CHECKING:
-    from main import LitRPGToolsEngine
-    from ui.desktop.gui import LitRPGToolsDesktopGUI
+    from data_manager import LitRPGToolsEngine
+    from desktop.gui import LitRPGToolsDesktopGUI
 
 
 class CharacterTab(QWidget):
-    def __init__(self, parent: 'LitRPGToolsDesktopGUI', engine: 'LitRPGToolsEngine', character_id: str):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', character_id: str):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
         self.character_id = character_id
 
         # Content
@@ -27,8 +26,8 @@ class CharacterTab(QWidget):
         self.__tabbed_view.currentChanged.connect(self.__handle_tab_changed_callback)
 
         # Additional tabs
-        self.__character_configuration_tab = CharacterConfigurationTab(self, self._engine)
-        self.__dynamic_data_tab = DynamicDataTab(self._engine, self.character_id)
+        self.__character_configuration_tab = CharacterConfigurationTab(self.root_gui_object, self)
+        self.__dynamic_data_tab = DynamicDataTab(self.root_gui_object.data_manager, self.character_id)  # TODO
         self.__tabs_cache = OrderedDict()
 
         # Tab bar props
@@ -60,7 +59,7 @@ class CharacterTab(QWidget):
                 self.__tabbed_view.tabBar().moveTab(source_index, target_index)
 
         elif source_index > 1 and target_index > 1:
-            self._engine.move_category_id_by_index_to_index(self.character_id, source_index - 2, target_index - 2)
+            self.root_gui_object.data_manager.move_category_id_by_index_to_index(self.character_id, source_index - 2, target_index - 2)
 
     def draw(self):
         current_tab_index = self.__tabbed_view.currentIndex()
@@ -77,20 +76,20 @@ class CharacterTab(QWidget):
         self.__tabbed_view.addTab(self.__dynamic_data_tab, "Dynamic Data Store")
 
         # Conditional addition of categories
-        character = self._engine.get_character_by_id(self.character_id)
+        character = self.root_gui_object.data_manager.get_character_by_id(self.character_id)
         category_ids = character.categories
         if category_ids is None:
             return
 
         # Work through our available categories and add
         for category_id in category_ids:
-            category = self._engine.get_category_by_id(category_id)
+            category = self.root_gui_object.data_manager.get_category_by_id(category_id)
 
             # Retrieve cached tab and add to tabs
             if category_id in self.__tabs_cache:
                 tab = self.__tabs_cache[category_id]
             else:
-                tab = CategoryTab(self, self._engine, category_id)
+                tab = CategoryTab(self.root_gui_object, self, category_id)  # TODO
                 self.__tabs_cache[category_id] = tab
             self.__tabbed_view.addTab(tab, category.name)
 
@@ -119,17 +118,17 @@ class CharacterTab(QWidget):
 
 
 class CharacterConfigurationTab(QWidget):
-    def __init__(self, parent: CharacterTab, engine: 'LitRPGToolsEngine'):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', parent_gui_object: CharacterTab):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
+        self.parent_gui_object = parent_gui_object
 
         # Form layout
         self.__layout = QFormLayout()
         self.setLayout(self.__layout)
 
     def draw(self):
-        character = self._engine.get_character_by_id(self._parent.character_id)
+        character = self.root_gui_object.data_manager.get_character_by_id(self.parent_gui_object.character_id)
         if character is None:
             return
 
@@ -138,7 +137,7 @@ class CharacterConfigurationTab(QWidget):
             self.__layout.removeRow(0)
 
         # Add in fresh
-        categories = self._engine.get_categories()
+        categories = self.root_gui_object.data_manager.get_categories()
         for category in categories:
             check_box = QCheckBox()
             state = category.unique_id in character.categories
@@ -147,21 +146,21 @@ class CharacterConfigurationTab(QWidget):
             self.__layout.addRow(category.name, check_box)
 
     def __handle_category_box_callback(self, category_id: str, current_state: bool):
-        character = self._engine.get_character_by_id(self._parent.character_id)
+        character = self.root_gui_object.data_manager.get_character_by_id(self.parent_gui_object.character_id)
         if current_state:
             character.categories.remove(category_id)
         else:
             character.categories.append(category_id)
-        self._engine.edit_character(character)
+        self.root_gui_object.data_manager.edit_character(character)
 
         # Call parent so that the tabs can be updated
-        self._parent.draw()
+        self.parent_gui_object.draw()
 
 
 class CharacterDialog(QDialog):
-    def __init__(self, engine, character=None):
-        super(CharacterDialog, self).__init__()
-        self.__engine = engine
+    def __init__(self, gui: 'LitRPGToolsDesktopGUI', character=None):
+        super(CharacterDialog, self).__init__(parent=gui.parent())
+        self.gui = gui
         self.success = False
         self.categories = list()
 
@@ -198,7 +197,7 @@ class CharacterDialog(QDialog):
         self.__character_categories_table.setHorizontalHeaderItem(1, QTableWidgetItem("Enabled?"))
         self.__character_categories_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.__character_categories_table.blockSignals(True)
-        categories = self.__engine.get_categories()
+        categories = self.gui.data_manager.get_categories()
         self.__character_categories_table.setRowCount(len(categories))
         for i, category in enumerate(categories):
             self.__character_categories_table.setItem(i, 0, QTableWidgetItem(category.name))
@@ -279,9 +278,9 @@ class CharacterSelectorDialog(QDialog):
         self.close()
 
 
-def add_or_edit_character(engine: 'LitRPGToolsEngine', character: Character | None):
+def add_or_edit_character(gui: 'LitRPGToolsDesktopGUI', character: Character | None):
     # Build a dialog to edit the current character information
-    edit_character_dialog = CharacterDialog(engine, character=character)
+    edit_character_dialog = CharacterDialog(gui, character=character)
     edit_character_dialog.exec()
 
     # Validate dialog output
@@ -296,11 +295,11 @@ def add_or_edit_character(engine: 'LitRPGToolsEngine', character: Character | No
     # Add the character in our engine
     if character is None:
         character = Character(name=character_name, categories=edit_character_dialog.categories)
-        engine.add_character(character)
+        gui.data_manager.add_character(character)
     else:
         new_character = Character(name=character_name, categories=edit_character_dialog.categories)
         new_character.unique_id = character.unique_id
-        engine.edit_character(new_character)
+        gui.data_manager.edit_character(new_character)
         character = new_character
 
     return character

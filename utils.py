@@ -48,7 +48,6 @@ def move_item_in_list_by_index_to_position(l: list, source_index: int, target_in
     return l
 
 
-
 def handle_old_save_file_loader(json_data) -> DataFile | None:
     attempt_count = 0
     try:

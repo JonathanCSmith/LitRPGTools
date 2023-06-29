@@ -5,10 +5,10 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QTableWidgetItem, QTableWidget, QHeaderView, QComboBox, QFormLayout, QWidget, QLabel, QScrollArea, QVBoxLayout, QCheckBox, QHBoxLayout, QMenu
 
-from ui.desktop.generic_components import LessIntrusiveComboBox
+from desktop.generic_components import LessIntrusiveComboBox
 
 if TYPE_CHECKING:
-    from main import LitRPGToolsEngine
+    from data_manager import LitRPGToolsEngine
 
 
 class DynamicDataTab(QWidget):
@@ -104,7 +104,7 @@ def extract_dynamic_data_table_data(table) -> dict | None:
         type = table.cellWidget(row_index, 1).currentText()
         scope = table.cellWidget(row_index, 2).currentText()
         operation = table.item(row_index, 3).text()
-        operation = operation.replace("\"", "'")
+        operation = operation.replace("\"", "")
         modifications[dynamic_key] = (type, scope, operation)
     return modifications
 

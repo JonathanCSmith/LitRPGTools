@@ -5,27 +5,25 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QFormLayout, QPushButton, QHBoxLayout, QListWidget, QAbstractItemView, QLineEdit, QCheckBox, QListWidgetItem
 
 from data import Entry, Category, Character
-from ui.desktop import entry_components
-from ui.desktop.category_components import create_category_form, add_or_edit_category, delete_category
-from ui.desktop.custom_generic_components import VisibleDynamicSplitPanel
+from desktop import entry_components
+from desktop.category_components import create_category_form, add_or_edit_category, delete_category
+from desktop.custom_generic_components import VisibleDynamicSplitPanel
 
 if TYPE_CHECKING:
-    from ui.desktop.gui import LitRPGToolsDesktopGUI
-    from main import LitRPGToolsEngine
+    from desktop.gui import LitRPGToolsDesktopGUI
 
 
 class SearchTab(VisibleDynamicSplitPanel):
-    def __init__(self, parent: 'LitRPGToolsDesktopGUI', engine: 'LitRPGToolsEngine'):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI'):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
 
         # Currently selected
         self.results = list()
 
         # Main components
-        self._sidebar_widget = SearchSidebar(self, engine)
-        self._view_widget = SearchView(self, engine)
+        self._sidebar_widget = SearchSidebar(self.root_gui_object, self)
+        self._view_widget = SearchView(self.root_gui_object, self)
 
         # Core display
         self.addWidget(self._sidebar_widget)
@@ -54,16 +52,17 @@ class SearchTab(VisibleDynamicSplitPanel):
     def set_results(self, results: list):
         self.results = results
 
-    def _selection_changed(self, index: int):
-        self.current_selection = self.results[index]
+    def _selection_changed(self, index: int = -1):
+        if index != -1:
+            self.current_selection = self.results[index]
         self._view_widget.draw()
 
 
 class SearchSidebar(QWidget):
-    def __init__(self, parent: SearchTab, engine: 'LitRPGToolsEngine'):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', parent_gui_object: SearchTab):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
+        self.parent_gui_object = parent_gui_object
 
         # Actual display of what we wanted to display (as per above).
         self.__active_list = QListWidget()
@@ -103,7 +102,7 @@ class SearchSidebar(QWidget):
         self.setContentsMargins(0, 0, 0, 0)
 
     def __handle_sidebar_selection_changed_callback(self):
-        self._parent._selection_changed(self.__active_list.currentRow())
+        self.parent_gui_object._selection_changed(self.__active_list.currentRow())
 
     def __handle_search_callback(self):
         # Get our search data
@@ -112,8 +111,8 @@ class SearchSidebar(QWidget):
             return
 
         # Get the results
-        results = self._engine.search_all(search_text)
-        self._parent.set_results(results)
+        results = self.root_gui_object.data_manager.search_all(search_text)
+        self.parent_gui_object.set_results(results)
 
         # Block signals and clear list
         self.__active_list.blockSignals(True)
@@ -122,8 +121,8 @@ class SearchSidebar(QWidget):
         # Loop through our entries and add them
         for index, result in enumerate(results):
             if isinstance(result, Entry):
-                category = self._engine.get_category_by_id(result.category_id)
-                character = self._engine.get_character_by_id(result.character_id)
+                category = self.root_gui_object.data_manager.get_category_by_id(result.category_id)
+                character = self.root_gui_object.data_manager.get_character_by_id(result.character_id)
 
                 # Display string format
                 if result.parent_id is None:
@@ -166,7 +165,7 @@ class SearchSidebar(QWidget):
             self.view_dynamic_absolute = not self.view_dynamic_relative
             self.__view_dynamic_data_absolute_checkbox.setChecked(self.view_dynamic_absolute)
             self.__view_dynamic_data_absolute_checkbox.blockSignals(False)
-        self._parent._selection_changed()
+        self.parent_gui_object._selection_changed()
 
     def __handle_view_dynamic_data_absolute_callback(self):
         self.view_dynamic_absolute = self.__view_dynamic_data_absolute_checkbox.isChecked()
@@ -175,13 +174,10 @@ class SearchSidebar(QWidget):
             self.view_dynamic_relative = not self.view_dynamic_absolute
             self.__view_dynamic_data_relative_checkbox.setChecked(self.view_dynamic_relative)
             self.__view_dynamic_data_relative_checkbox.blockSignals(False)
-        self._parent._selection_changed()
+        self.parent_gui_object._selection_changed()
 
     def draw(self):
         self.__handle_search_callback()
-
-    def get_should_display_dynamic(self):
-        return self.__view_dynamic
 
     def get_currently_selected(self):
         return self.__active_list.currentItem()
@@ -191,10 +187,10 @@ class SearchSidebar(QWidget):
 
 
 class SearchView(QScrollArea):
-    def __init__(self, parent: SearchTab, engine: 'LitRPGToolsEngine'):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', parent_gui_object: SearchTab):
         super().__init__()
-        self._parent = parent
-        self._engine = engine
+        self.root_gui_object = root_gui_object
+        self.parent_gui_object = parent_gui_object
 
         # Main
         self.__results_view = QWidget()
@@ -214,11 +210,11 @@ class SearchView(QScrollArea):
             result_widget.deleteLater()
 
         # Retrieve our selection
-        item = self._parent.get_current_selection()
+        item = self.parent_gui_object.get_current_selection()
         if item is None:
             return
         index = item.data(Qt.ItemDataRole.UserRole)
-        result = self._parent.results[index]
+        result = self.parent_gui_object.results[index]
 
         # Draw the result
         if isinstance(result, Entry):
@@ -228,23 +224,23 @@ class SearchView(QScrollArea):
             self.__draw_category(result)
 
     def __draw_entry(self, entry: Entry):
-        character = self._engine.get_character_by_id(entry.character_id)
-        category = self._engine.get_category_by_id(entry.category_id)
+        character = self.root_gui_object.data_manager.get_character_by_id(entry.character_id)
+        category = self.root_gui_object.data_manager.get_category_by_id(entry.category_id)
 
         # Switch which dynamic data we display depending on what button is ticked
-        current_index = self._engine.get_entry_index_in_history(entry.unique_id)
+        current_index = self.root_gui_object.data_manager.get_entry_index_in_history(entry.unique_id)
         target_index = None
         should_display_dynamic_data = False
-        if self._parent.get_should_display_dynamic_absolute():
+        if self.parent_gui_object.get_should_display_dynamic_absolute():
             should_display_dynamic_data = True
-        elif self._parent.get_should_display_dynamic_relative():
-            target_index = self._engine.get_current_history_index()
+        elif self.parent_gui_object.get_should_display_dynamic_relative():
+            target_index = self.root_gui_object.data_manager.get_current_history_index()
             should_display_dynamic_data = True
 
         # Form
         entry_form = QWidget()
         entry_form_layout = QFormLayout()
-        entry_components.create_entry_form(self._engine, entry_form_layout, character, category, entry, current_index, header=True, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
+        entry_components.create_entry_form(self.root_gui_object.data_manager, entry_form_layout, character, category, entry, current_index, header=True, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
         entry_form.setLayout(entry_form_layout)
 
         # Controls
@@ -294,10 +290,10 @@ class SearchView(QScrollArea):
         category_controls = QWidget()
         category_controls_layout = QVBoxLayout()
         category_edit_button = QPushButton("Edit")
-        category_edit_button.clicked.connect(partial(add_or_edit_category, self._engine, category))
+        category_edit_button.clicked.connect(partial(add_or_edit_category, self.root_gui_object.data_manager, category))
         category_controls_layout.addWidget(category_edit_button)
         category_delete_button = QPushButton("Delete")
-        category_delete_button.clicked.connect(partial(delete_category, self._engine, self._parent, category))
+        category_delete_button.clicked.connect(partial(delete_category, self.root_gui_object.data_manager, self.parent_gui_object, category))
         category_controls_layout.addWidget(category_delete_button)
         category_controls_layout.addStretch()
         category_controls.setLayout(category_controls_layout)
@@ -315,25 +311,25 @@ class SearchView(QScrollArea):
         self.__results_view_layout.addWidget(category_widget)
 
     def __handle_set_as_head_callback(self, entry: Entry):
-        entry_components.set_entry_as_head(self._engine, entry)
+        entry_components.set_entry_as_head(self.root_gui_object.data_manager, entry)
 
     def __handle_edit_callback(self, entry: Entry):
-        entry_components.edit_entry(self._engine, self, entry)
-        self._parent.draw()
+        entry_components.edit_entry(self.root_gui_object.data_manager, self, entry)
+        self.parent_gui_object.draw()
 
     def __handle_update_callback(self, entry: Entry):
-        update = entry_components.update_entry(self._engine, self, entry)
+        update = entry_components.update_entry(self.root_gui_object.data_manager, self, entry)
         if update is not None:
-            self._parent.set_curently_selected(self._engine.get_entry_index_in_history(update.unique_id))
+            self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_entry_index_in_history(update.unique_id))
 
     def __handle_delete_series_callback(self, entry: Entry):
-        entry_components.delete_entry_series(self._engine, self, entry)
-        self._parent.set_curently_selected(self._engine.get_current_history_index())
+        entry_components.delete_entry_series(self.root_gui_object.data_manager, self, entry)
+        self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_current_history_index())
 
     def __handle_delete_callback(self, entry: Entry):
-        entry_components.delete_entry(self._engine, self, entry)
-        self._parent.set_curently_selected(self._engine.get_current_history_index())
+        entry_components.delete_entry(self.root_gui_object.data_manager, self, entry)
+        self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_current_history_index())
 
     def __handle_duplicate_callback(self, entry: Entry):
-        entry_components.duplicate_entry(self._engine, entry)
-        self._parent.set_curently_selected(self._engine.get_current_history_index())
+        entry_components.duplicate_entry(self.root_gui_object.data_manager, entry)
+        self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_current_history_index())

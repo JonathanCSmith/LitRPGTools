@@ -8,7 +8,7 @@ from pygsheets.exceptions import RangeNotFound
 from data import Category, Output
 
 if TYPE_CHECKING:
-    from main import LitRPGToolsEngine
+    from data_manager import LitRPGToolsEngine
 
 
 class OverviewSheet:
@@ -175,9 +175,7 @@ class HistorySheet:
 
 
 class GSheetsHandler:
-    def __init__(self, engine: 'LitRPGToolsEngine', gui, credentials_path: str):
-        self.__engine = engine
-        self.__gui = gui
+    def __init__(self, credentials_path: str):
         self.__credentials_path = credentials_path
         self.communicator = None
         self.spreadsheet = None
