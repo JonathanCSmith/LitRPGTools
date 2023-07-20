@@ -3,8 +3,7 @@ from abc import abstractmethod
 
 """
 High Priority:
-TODO: 
-TODO: Changes on character name didn't propagate (but were in save file) - update issue?
+TODO: Output View, order entries not in output by actual entry index (and display corresponding entry index in the synopsis)
 TODO: Enter = run search
 TODO: Autosave to remember default save path?
 TODO: If an entry is not updatable then dont display the update buttons (note, force update should still be allowed!)

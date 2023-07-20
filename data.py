@@ -55,11 +55,11 @@ class Category(Data):
         self.can_update = can_update
         self.single_entry_only = single_entry_only
         if dynamic_data_operations is None:
-            dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dict()
-        self.dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dynamic_data_operations
+            dynamic_data_operations: Dict[str, Tuple[str, str, str]] = dict()
+        self.dynamic_data_operations: Dict[str, Tuple[str, str, str]] = dynamic_data_operations
         if dynamic_data_operation_templates is None:
-            dynamic_data_operation_templates: Dict[str, Tuple[str, bool, str]] = dict()
-        self.dynamic_data_operation_templates: Dict[str, Tuple[str, bool, str]] = dynamic_data_operation_templates
+            dynamic_data_operation_templates: Dict[str, Tuple[str, str, str]] = dict()
+        self.dynamic_data_operation_templates: Dict[str, Tuple[str, str, str]] = dynamic_data_operation_templates
 
 
 class Output(Data):
@@ -79,7 +79,7 @@ class Entry(Data):
             category_id: str,
             data: list,
             is_disabled: bool = False,
-            dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = None,
+            dynamic_data_operations: Dict[str, Tuple[str, str, str]] = None,
             unique_id: str = None,
             parent_id: str = None,
             child_id: str = None):
@@ -91,8 +91,8 @@ class Entry(Data):
         self.parent_id = parent_id
         self.child_id = child_id
         if dynamic_data_operations is None:
-            dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dict()
-        self.dynamic_data_operations: Dict[str, Tuple[str, bool, str]] = dynamic_data_operations
+            dynamic_data_operations: Dict[str, Tuple[str, str, str]] = dict()
+        self.dynamic_data_operations: Dict[str, Tuple[str, str, str]] = dynamic_data_operations
 
 
 class DataFile:

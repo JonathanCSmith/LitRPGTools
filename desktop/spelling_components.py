@@ -1,30 +1,5 @@
-"""QPlainTextEdit With Inline Spell Check
-Original PyQt4 Version:
-    https://nachtimwald.com/2009/08/22/qplaintextedit-with-in-line-spell-check/
-Copyright 2009 John Schember
-Copyright 2018 Stephan Sokolow
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
+from typing import TYPE_CHECKING
 
-__license__ = 'MIT'
-__author__ = 'John Schember; Stephan Sokolow'
-__docformat__ = 'restructuredtext en'
-
-import sys
 import enchant
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QFocusEvent, QAction, QActionGroup, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QTextBlockUserData, QFontMetrics
@@ -33,14 +8,8 @@ from enchant.utils import trim_suggestions
 from enchant.errors import TokenizerNotFoundError
 from PyQt6.QtWidgets import QPlainTextEdit, QMenu
 
-
-# pylint: disable=no-name-in-module
-# from PyQt5.Qt import Qt
-# from PyQt5.QtCore import QEvent
-# from PyQt5.QtGui import (QFocusEvent, QSyntaxHighlighter, QTextBlockUserData,
-#                          QTextCharFormat, QTextCursor)
-# from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QMenu,
-#                              QPlainTextEdit)
+if TYPE_CHECKING:
+    from desktop.gui import LitRPGToolsDesktopGUI
 
 
 class SpellTextEdit(QPlainTextEdit):
@@ -51,8 +20,9 @@ class SpellTextEdit(QPlainTextEdit):
     # into a second column.
     max_suggestions = 20
 
-    def __init__(self, *args):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', *args):
         QPlainTextEdit.__init__(self, *args)
+        self.root_gui_object = root_gui_object
 
         # Start with a default dictionary based on the current locale.
         self.highlighter = EnchantHighlighter(self.document())
@@ -79,6 +49,13 @@ class SpellTextEdit(QPlainTextEdit):
         except TypeError:  # Before Qt 5.5
             menu = self.createStandardContextMenu()
 
+        # Only add our special clipboard paste options if we aren't in read only mode
+        if not self.isReadOnly() and self.root_gui_object:
+            menu.addSeparator()
+            action1 = QAction("Paste Clipboard Entry ID", self)
+            action1.triggered.connect(self.__action1_triggered)
+            menu.addAction(action1)
+
         # Add a submenu for setting the spell-check language
         menu.addSeparator()
         menu.addMenu(self.createLanguagesMenu(menu))
@@ -93,6 +70,11 @@ class SpellTextEdit(QPlainTextEdit):
             menu.insertMenu(menu.actions()[0], spell_menu)
 
         return menu
+
+    def __action1_triggered(self):
+        entry_id = self.root_gui_object.get_clipboard_item("ENTRY_ID")
+        if entry_id is not None:
+            self.insertPlainText(entry_id)
 
     def createCorrectionsMenu(self, cursor, parent=None):
         """Create and return a menu for correcting the selected word."""
@@ -193,8 +175,8 @@ class SpellTextEdit(QPlainTextEdit):
 
 
 class SpellTextEditSingleLine(SpellTextEdit):
-    def __init__(self, *args):
-        super(SpellTextEditSingleLine, self).__init__(*args)
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', *args):
+        super(SpellTextEditSingleLine, self).__init__(root_gui_object, *args)
 
         QTextEdFontMetrics = QFontMetrics(self.font())
         self.QTextEdRowHeight = QTextEdFontMetrics.lineSpacing()

@@ -2,8 +2,8 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QResizeEvent
-from PyQt6.QtWidgets import QDialog, QPushButton, QFormLayout, QLineEdit, QPlainTextEdit, QComboBox, QMessageBox, QLabel, QCheckBox, QWidget, QVBoxLayout, QHBoxLayout
+from PyQt6.QtGui import QResizeEvent, QAction
+from PyQt6.QtWidgets import QDialog, QPushButton, QFormLayout, QLineEdit, QPlainTextEdit, QComboBox, QMessageBox, QLabel, QCheckBox, QWidget, QVBoxLayout, QHBoxLayout, QMenu, QApplication
 
 from data import Entry, Character, Category
 from desktop import dynamic_data_components
@@ -12,12 +12,14 @@ from desktop.spelling_components import SpellTextEdit, SpellTextEditSingleLine
 
 if TYPE_CHECKING:
     from data_manager import LitRPGToolsEngine
+    from desktop.gui import LitRPGToolsDesktopGUI
 
 
 class EntryDialog(QDialog):
-    def __init__(self, engine: 'LitRPGToolsEngine', entry: Entry | None, editing: bool = False):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', entry: Entry | None, editing: bool = False):
         super(EntryDialog, self).__init__()
-        self.__engine = engine
+        self.root_gui_object = root_gui_object
+        self.engine = root_gui_object.data_manager
         if entry is None:
             self.entry = Entry("MOCK", "MOCK", list())
             self.__new_entry = True
@@ -117,17 +119,17 @@ class EntryDialog(QDialog):
         if self.__character_id is not None and self.__category_id is not None:
 
             # Fetch data
-            character = self.__engine.get_character_by_id(self.__character_id)
-            category = self.__engine.get_category_by_id(self.__category_id)
+            character = self.engine.get_character_by_id(self.__character_id)
+            category = self.engine.get_category_by_id(self.__category_id)
             if self.__editing:
-                index = self.__engine.get_entry_index_in_history(self.entry.unique_id)
+                index = self.engine.get_entry_index_in_history(self.entry.unique_id)
 
             # In this case, we are making an 'update' so it gets injected at the HEAD
             else:
-                index = self.__engine.get_current_history_index()
+                index = self.engine.get_current_history_index()
 
             # Add our entry to the form if possible
-            self.__results = create_entry_form(self.__engine, self.__layout, character, category, self.entry, index, not self.__new_entry, False)
+            self.__results = create_entry_form(self.root_gui_object, self.__layout, character, category, self.entry, index, not self.__new_entry, False)
 
         # Add our buttons
         self.__layout.addRow(self.__cancel_button, self.__done_button)
@@ -141,7 +143,7 @@ class EntryDialog(QDialog):
             self.__character_selector.addItem("Please Select a Character")
 
             # Fill in our character data
-            for index, character in enumerate(self.__engine.get_characters()):
+            for index, character in enumerate(self.engine.get_characters()):
                 self.__character_selector.addItem(character.name)
                 self.__character_selector.setItemData(index + 1, character.unique_id, Qt.ItemDataRole.UserRole)
 
@@ -180,15 +182,15 @@ class EntryDialog(QDialog):
         self.__category_selector.addItem("Please Select a Category")
 
         # Retrieve this character's categories and add them to the drop-down list
-        character = self.__engine.get_character_by_id(self.__character_id)
+        character = self.engine.get_character_by_id(self.__character_id)
         category_ids = character.categories
         counter = 1
         for index, category_id in enumerate(category_ids):
-            category = self.__engine.get_category_by_id(category_id)
+            category = self.engine.get_category_by_id(category_id)
 
             # Ignore singleton categories that already have associated data
             if category.single_entry_only:
-                state = self.__engine.get_entries_for_character_and_category_at_current_history_index(self.__character_id, category_id)
+                state = self.engine.get_entries_for_character_and_category_at_current_history_index(self.__character_id, category_id)
                 if state is not None and len(state) != 0:
                     continue
 
@@ -199,9 +201,10 @@ class EntryDialog(QDialog):
 
 
 class DoubleEntryDialog(QDialog):
-    def __init__(self, engine: 'LitRPGToolsEngine', entry: Entry, old_entry: Entry, editing: bool = False):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', entry: Entry, old_entry: Entry, editing: bool = False):
         super(DoubleEntryDialog, self).__init__()
-        self.__engine = engine
+        self.root_gui_object = root_gui_object
+        self.engine = root_gui_object.data_manager
         self.entry = entry
         self.old_entry = old_entry
         self.__editing = editing  # Used to indicate where the new entry should be injected
@@ -247,12 +250,12 @@ class DoubleEntryDialog(QDialog):
         self.showMaximized()
 
     def __fill_comparison_buttons(self):
-        self.__category = self.__engine.get_category_by_id(self.old_entry.category_id)
+        self.__category = self.engine.get_category_by_id(self.old_entry.category_id)
 
         # Header entry
         header_layout = QVBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.addWidget(QLabel("Controls"))
+        header_layout.addWidget(QLabel())
         header_layout.addStretch()
         header_parent_object = QWidget()
         header_parent_object.setLayout(header_layout)
@@ -343,14 +346,14 @@ class DoubleEntryDialog(QDialog):
             self.__new_entry_layout.removeRow(0)
 
         # Apply the data from the old entry
-        character = self.__engine.get_character_by_id(self.old_entry.character_id)
-        old_index = self.__engine.get_entry_index_in_history(self.old_entry.unique_id)
-        self.__old_data = create_entry_form(self.__engine, self.__old_entry_layout, character, self.__category, self.old_entry, old_index, header=True, readonly=True, translate_with_dynamic_data=False)
+        character = self.engine.get_character_by_id(self.old_entry.character_id)
+        old_index = self.engine.get_entry_index_in_history(self.old_entry.unique_id)
+        self.__old_data = create_entry_form(self.root_gui_object, self.__old_entry_layout, character, self.__category, self.old_entry, old_index, header=True, readonly=True, translate_with_dynamic_data=False)
         if self.__editing:
-            index = self.__engine.get_entry_index_in_history(self.entry.unique_id)
+            index = self.engine.get_entry_index_in_history(self.entry.unique_id)
         else:
-            index = self.__engine.get_current_history_index()
-        self.__current_data = create_entry_form(self.__engine, self.__new_entry_layout, character, self.__category, self.entry, index, header=True, readonly=False, translate_with_dynamic_data=False)
+            index = self.engine.get_current_history_index()
+        self.__current_data = create_entry_form(self.root_gui_object, self.__new_entry_layout, character, self.__category, self.entry, index, header=True, readonly=False, translate_with_dynamic_data=False)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         if self.startup:
@@ -358,7 +361,7 @@ class DoubleEntryDialog(QDialog):
             return
 
         # Loop through our display rows and attempt to match their heights
-        header_rows = 4
+        header_rows = 5
         category_rows = len(self.__category.contents)
         footer_rows = 2
         header_height = 0
@@ -391,16 +394,11 @@ class DoubleEntryDialog(QDialog):
                 header_height += desired_height + self.__old_entry_layout.verticalSpacing()
             elif row_index == header_rows - 1:
                 header_height += desired_height
-                target_row = 0
-                self.__data_movement_layout.itemAt(target_row, QFormLayout.ItemRole.FieldRole).widget().setFixedHeight(header_height)
-                print("Setting row: " + str(target_row) + " (header) to height: " + str(header_height))
-            elif row_index == header_rows + category_rows + footer_rows - 1:
-                # Skip the last as it should always be default size I think
-                continue
-            else:
-                target_row = row_index - header_rows + 1
-                self.__data_movement_layout.itemAt(target_row, QFormLayout.ItemRole.FieldRole).widget().setFixedHeight(desired_height)
-                print("Setting row: " + str(target_row) + " to height: " + str(desired_height))
+                self.__data_movement_layout.itemAt(0, QFormLayout.ItemRole.FieldRole).widget().setFixedHeight(header_height)
+                # print("Setting row: " + str(target_row) + " (header) to height: " + str(header_height))
+            elif row_index != header_rows + category_rows + footer_rows - 1:
+                self.__data_movement_layout.itemAt(row_index - header_rows + 1, QFormLayout.ItemRole.FieldRole).widget().setFixedHeight(desired_height)
+                # print("Setting row: " + str(row_index - header_rows + 1) + " to height: " + str(desired_height))
 
 
 def set_entry_as_head(engine: 'LitRPGToolsEngine', entry: Entry):
@@ -412,8 +410,9 @@ def set_entry_as_head(engine: 'LitRPGToolsEngine', entry: Entry):
     engine.set_current_history_index(index)
 
 
-def add_entry(engine: 'LitRPGToolsEngine'):
-    entry_dialog = EntryDialog(engine, None, editing=True)
+def add_entry(root_gui_object: 'LitRPGToolsDesktopGUI'):
+    engine = root_gui_object.data_manager
+    entry_dialog = EntryDialog(root_gui_object, None, editing=True)
     entry_dialog.exec()
     if not entry_dialog.success:
         return
@@ -427,14 +426,15 @@ def add_entry(engine: 'LitRPGToolsEngine'):
     engine.add_entry_at_head(entry)
 
 
-def edit_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
+def edit_entry(root_gui_object: 'LitRPGToolsDesktopGUI', caller: QWidget, entry: Entry):
+    engine = root_gui_object.data_manager
     copy_entry = Entry(entry.character_id, entry.category_id, entry.data.copy(), entry.is_disabled, dynamic_data_operations=entry.dynamic_data_operations)
     copy_entry.unique_id = entry.unique_id  # TODO: Would it be simpler to just reuse the existing
     if entry.parent_id is not None:
         old_entry = engine.get_entry_by_id(entry.parent_id)
-        entry_dialog = DoubleEntryDialog(engine, copy_entry, old_entry, editing=True)
+        entry_dialog = DoubleEntryDialog(root_gui_object, copy_entry, old_entry, editing=True)
     else:
-        entry_dialog = EntryDialog(engine, copy_entry, editing=True)
+        entry_dialog = EntryDialog(root_gui_object, copy_entry, editing=True)
 
     entry_dialog.exec()
     if not entry_dialog.success:
@@ -464,7 +464,7 @@ def edit_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
         # Standard editing modal dialog
         copy_entry = Entry(target_entry.character_id, target_entry.category_id, target_entry.data.copy(), target_entry.is_disabled, dynamic_data_operations=target_entry.dynamic_data_operations)
         copy_entry.unique_id = target_entry.unique_id  # TODO: Would it be simpler to just reuse the existing
-        entry_dialog = DoubleEntryDialog(engine, copy_entry, old_entry, editing=True)
+        entry_dialog = DoubleEntryDialog(root_gui_object, copy_entry, old_entry, editing=True)
         entry_dialog.exec()
         if not entry_dialog.success:
             continue
@@ -482,7 +482,8 @@ def edit_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
     return old_entry
 
 
-def update_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
+def update_entry(root_gui_object: 'LitRPGToolsDesktopGUI', caller: QWidget, entry: Entry):
+    engine = root_gui_object.data_manager
     current_entry_id = engine.get_most_recent_entry_id_in_series(entry.unique_id)
 
     # This situation can happen when our 'current index' is set to before the entry series has been created
@@ -492,7 +493,7 @@ def update_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
     # Get the 'most recent' in the series up to the current index
     current_entry = engine.get_entry_by_id(current_entry_id)
     new_entry = Entry(current_entry.character_id, current_entry.category_id, current_entry.data, current_entry.is_disabled, parent_id=current_entry.unique_id, child_id=current_entry.child_id)
-    entry_dialog = DoubleEntryDialog(engine, new_entry, current_entry, editing=False)
+    entry_dialog = DoubleEntryDialog(root_gui_object, new_entry, current_entry, editing=False)
     entry_dialog.exec()
     if not entry_dialog.success:
         return None
@@ -519,7 +520,7 @@ def update_entry(engine: 'LitRPGToolsEngine', caller: QWidget, entry: Entry):
         # Standard editing modal dialog
         copy_entry = Entry(target_entry.character_id, target_entry.category_id, target_entry.data.copy(), target_entry.is_disabled, dynamic_data_operations=target_entry.dynamic_data_operations)
         copy_entry.unique_id = target_entry.unique_id  # TODO: Would it be simpler to just reuse the existing
-        entry_dialog = DoubleEntryDialog(engine, copy_entry, old_entry, editing=True)
+        entry_dialog = DoubleEntryDialog(root_gui_object, copy_entry, old_entry, editing=True)
         entry_dialog.exec()
         if not entry_dialog.success:
             continue
@@ -600,11 +601,14 @@ def duplicate_entry(engine: 'LitRPGToolsEngine', entry: Entry):
     engine.add_entry_at_head(new_entry)
 
 
-def create_entry_form(engine: 'LitRPGToolsEngine', target_layout: QFormLayout, character: Character | None, category: Category, entry: Entry | None, history_index: int, header=True, readonly=False, translate_with_dynamic_data=False, dynamic_data_index=None) -> list:
+def create_entry_form(root_gui_object: 'LitRPGToolsDesktopGUI', target_layout: QFormLayout, character: Character | None, category: Category, entry: Entry | None, history_index: int, header=True, readonly=False, translate_with_dynamic_data=False, dynamic_data_index=None) -> list:
+    engine = root_gui_object.data_manager
+
     # Add our header info
     if header:
         target_layout.addRow("Character:", QLabel(character.name))
         target_layout.addRow("Category:", QLabel(category.name))
+        target_layout.addRow("Unique Id:", QLabel(entry.unique_id))
         target_layout.addRow("History Index:", QLabel(str(history_index)))
         target_layout.addRow("", QLabel())
 
@@ -627,9 +631,9 @@ def create_entry_form(engine: 'LitRPGToolsEngine', target_layout: QFormLayout, c
 
         # Kind of field
         if large_input:
-            input_field = SpellTextEdit(data)
+            input_field = SpellTextEdit(root_gui_object, data)
         else:
-            input_field = SpellTextEditSingleLine(data)
+            input_field = SpellTextEditSingleLine(root_gui_object, data)
 
         # Ensure the field is not editable
         if readonly:
@@ -639,7 +643,7 @@ def create_entry_form(engine: 'LitRPGToolsEngine', target_layout: QFormLayout, c
         callback_for_editables.append(input_field)
 
     # Dynamic data modifications
-    series_data_table = dynamic_data_components.create_dynamic_data_table(readonly=readonly)
+    series_data_table = dynamic_data_components.create_dynamic_data_table(root_gui_object, readonly=readonly)
     if entry is not None and entry.dynamic_data_operations:
         dynamic_data_components.fill_dynamic_modifications_table(series_data_table, entry.dynamic_data_operations, readonly=readonly)
     else:

@@ -334,7 +334,7 @@ class OutputView(QScrollArea):
         # Form
         entry_form = QWidget()
         entry_form_layout = QFormLayout()
-        entry_components.create_entry_form(self.root_gui_object.data_manager, entry_form_layout, character, category, entry, current_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
+        entry_components.create_entry_form(self.root_gui_object, entry_form_layout, character, category, entry, current_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
         entry_form.setLayout(entry_form_layout)
 
         # Controls
@@ -395,7 +395,7 @@ class OutputView(QScrollArea):
         self.parent_gui_object.draw()
 
     def __handle_edit_entry_callback(self, entry: Entry):
-        entry_components.edit_entry(self.root_gui_object.data_manager, self, entry)
+        entry_components.edit_entry(self.root_gui_object, self, entry)
         self.parent_gui_object.draw()
 
     def __handle_move_entry_up_callback(self, entry_id: str, state: bool):

@@ -50,6 +50,9 @@ class LitRPGToolsDesktopGUI(QMainWindow):
         self.data_manager = session.data_manager
         self.__app = app
 
+        # Clipboard
+        self.clipboard = dict()
+
         # Theme
         # Force the style to be the same on all OSs:
         self.__app.setStyle("Fusion")
@@ -104,6 +107,14 @@ class LitRPGToolsDesktopGUI(QMainWindow):
 
         # Force update
         self.draw()
+
+    def save_clipboard_item(self, key: str, value: str):
+        self.clipboard[key] = value
+
+    def get_clipboard_item(self, key: str):
+        if key in self.clipboard:
+            return self.clipboard[key]
+        return None
 
     def __setup_menu(self):
         self.__menu_bar = self.menuBar()
@@ -221,25 +232,22 @@ class LitRPGToolsDesktopGUI(QMainWindow):
             self.draw()
 
     def __handle_character_edit_callback(self, character: Character):
-        character = character_components.add_or_edit_character(self, character)
-        current_tab_index = self.__tabbed_view.currentIndex()
-        current_tab_text = self.__tabbed_view.tabText(current_tab_index)
-        if current_tab_text == character.name:
-            self.__tabbed_view.currentWidget().draw()
+        character_components.add_or_edit_character(self, character)
+        self.draw()
 
     def __handle_character_delete_callback(self, character: Character):
         character_components.delete_character(self.data_manager, character)
         self.draw()
 
     def __handle_category_creation_callback(self):
-        category = category_components.add_or_edit_category(self.data_manager, None)
+        category = category_components.add_or_edit_category(self, None)
         if category is not None:
             self.__draw_submenus()
         # No need to update as our current implementation implies that nothing will know about this category yet...
 
     def __handle_category_edit_callback(self, category_id: str):
         category = self.data_manager.get_category_by_id(category_id)
-        category_components.add_or_edit_category(self.data_manager, category)
+        category_components.add_or_edit_category(self, category)
         self.draw()  # Broad call here as we don't know if this category is currently being displayed...
 
     def __handle_category_delete_callback(self, category_id: str):

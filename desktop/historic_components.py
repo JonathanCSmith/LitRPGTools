@@ -1,8 +1,8 @@
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette, QColor
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFormLayout, QLineEdit, QFrame, QListWidgetItem, QListWidget, QAbstractItemView, QCheckBox, QComboBox
+from PyQt6.QtGui import QPalette, QColor, QAction
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFormLayout, QLineEdit, QFrame, QListWidgetItem, QListWidget, QAbstractItemView, QCheckBox, QComboBox, QMenu
 
 from data import Character, Category, Entry
 from desktop import output_components, entry_components
@@ -171,7 +171,7 @@ class HistorySidebar(QWidget):
         self.parent_gui_object._selection_changed()
 
     def __handle_new_entry_callback(self):
-        entry_components.add_entry(self.root_gui_object.data_manager)
+        entry_components.add_entry(self.root_gui_object)
         entry_index = self.root_gui_object.data_manager.get_current_history_index()
         self.parent_gui_object.draw()
         self.parent_gui_object.set_curently_selected(entry_index)
@@ -311,6 +311,10 @@ class HistoryView(QWidget):
         self.__display_pane_layout.setContentsMargins(0, 0, 0, 0)
         self.__display_pane.setLayout(self.__display_pane_layout)
 
+        # Context menu
+        self.__display_pane.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.__display_pane.customContextMenuRequested.connect(self.create_context_menu)
+
         # Add a separator for UX
         self.__separator_2 = QFrame()
         self.__separator_2.setFrameStyle(QFrame.Shape.HLine | QFrame.Shadow.Raised)
@@ -430,11 +434,11 @@ class HistoryView(QWidget):
         self.parent_gui_object.set_curently_selected(self.entry_index)
 
     def __handle_edit_callback(self):
-        entry_components.edit_entry(self.root_gui_object.data_manager, self, self.entry)
+        entry_components.edit_entry(self.root_gui_object, self, self.entry)
         self.parent_gui_object.draw()
 
     def __handle_update_callback(self):
-        update = entry_components.update_entry(self.root_gui_object.data_manager, self, self.entry)
+        update = entry_components.update_entry(self.root_gui_object, self, self.entry)
         if update is not None:
             self.parent_gui_object.draw()
             self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_entry_index_in_history(update.unique_id))
@@ -453,6 +457,26 @@ class HistoryView(QWidget):
         entry_components.duplicate_entry(self.root_gui_object.data_manager, self.entry)
         self.parent_gui_object.draw()
         self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_current_history_index())
+
+    def create_context_menu(self, pos):
+        if self.entry is None:
+            return
+
+        context_menu = QMenu(self)
+
+        # Create actions for the context menu
+        copy_id_to_clipboard_action = QAction("Copy Current Entry ID", self)
+        copy_id_to_clipboard_action.triggered.connect(self.copy_id_to_clipboard)
+
+        # Add actions to the context menu
+        context_menu.addAction(copy_id_to_clipboard_action)
+
+        # Show the context menu at the mouse position
+        context_menu.exec(self.mapToGlobal(pos))
+
+    def copy_id_to_clipboard(self):
+        root_entry_id = self.root_gui_object.data_manager.get_root_entry_id_in_series(self.entry.unique_id)
+        self.root_gui_object.save_clipboard_item("ENTRY_ID", "$${ID:" + root_entry_id + ":ID}$$")
 
     def draw(self):
         # We always need to redraw as the underlying data may have changed
@@ -495,7 +519,7 @@ class HistoryView(QWidget):
             should_display_dynamic_data = True
 
         # Draw our 'current' entry
-        entry_components.create_entry_form(self.root_gui_object.data_manager, self.__raw_pane_layout, character, category, entry, current_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
+        entry_components.create_entry_form(self.root_gui_object, self.__raw_pane_layout, character, category, entry, current_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
 
         # Hide the ancestor/descendent panes whent their aren't any
         if entry.parent_id is None:
@@ -512,11 +536,11 @@ class HistoryView(QWidget):
         if target_id is not None:
             ancestor = self.root_gui_object.data_manager.get_entry_by_id(target_id)
             ancestor_index = self.root_gui_object.data_manager.get_entry_index_in_history(target_id)
-            entry_components.create_entry_form(self.root_gui_object.data_manager, self.__ancestor_pane_layout, character, category, ancestor, ancestor_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)  # We can use target index here to achieve our desired result
+            entry_components.create_entry_form(self.root_gui_object, self.__ancestor_pane_layout, character, category, ancestor, ancestor_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)  # We can use target index here to achieve our desired result
 
         # Calculate our descendent
         target_id = entry.child_id
         if target_id is not None:
             descendent = self.root_gui_object.data_manager.get_entry_by_id(target_id)
             descendent_index = self.root_gui_object.data_manager.get_entry_index_in_history(target_id)
-            entry_components.create_entry_form(self.root_gui_object.data_manager, self.__descendent_pane_layout, character, category, descendent, descendent_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)  # We can use target index here to achieve our desired result
+            entry_components.create_entry_form(self.root_gui_object, self.__descendent_pane_layout, character, category, descendent, descendent_index, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)  # We can use target index here to achieve our desired result

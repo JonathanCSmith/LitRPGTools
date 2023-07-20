@@ -62,7 +62,7 @@ class LitRPGToolsEngine:
         self.__rebuild_caches()
 
     def get_unassigned_gsheets(self):
-        if self.session.get_gsheets_handler() is None:
+        if isinstance(self.session.get_gsheets_handler(), str):
             return None
 
         sheets = self.session.get_gsheets_handler().get_sheets()
@@ -73,6 +73,8 @@ class LitRPGToolsEngine:
 
     def output_to_gsheets(self, progress_bar: 'LitRPGToolsProgressUpdater', session: 'LitRPGToolsSession'):
         gsheets_handler = session.get_gsheets_handler()
+        if isinstance(gsheets_handler, str):
+            return
 
         # Progress metrics
         current_work_done = 0

@@ -1,14 +1,15 @@
 from functools import partial
 from typing import Dict, Tuple, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPersistentModelIndex
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QTableWidgetItem, QTableWidget, QHeaderView, QComboBox, QFormLayout, QWidget, QLabel, QScrollArea, QVBoxLayout, QCheckBox, QHBoxLayout, QMenu
+from PyQt6.QtWidgets import QTableWidgetItem, QTableWidget, QHeaderView, QComboBox, QFormLayout, QWidget, QLabel, QScrollArea, QVBoxLayout, QCheckBox, QHBoxLayout, QMenu, QStyledItemDelegate, QLineEdit
 
 from desktop.generic_components import LessIntrusiveComboBox
 
 if TYPE_CHECKING:
     from data_manager import LitRPGToolsEngine
+    from desktop.gui import LitRPGToolsDesktopGUI
 
 
 class DynamicDataTab(QWidget):
@@ -64,6 +65,33 @@ class DynamicDataTab(QWidget):
         self.draw()
 
 
+class ContextMenuDynamicDataItemDelegate(QStyledItemDelegate):
+    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', *args):
+        super().__init__(*args)
+        self.root_gui_object = root_gui_object
+
+    def createEditor(self, parent, option, index):
+        editor = super().createEditor(parent, option, index)
+        if isinstance(editor, QLineEdit):
+            editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            editor.customContextMenuRequested.connect(self.handle_context_menu)
+        return editor
+
+    def handle_context_menu(self, pos):
+        editor = self.sender()
+        if isinstance(editor, QLineEdit):
+            menu = editor.createStandardContextMenu()
+            clipboard_data = self.root_gui_object.get_clipboard_item("ENTRY_ID")
+            if clipboard_data is not None:
+                paste_action = QAction("Paste Clipboard Entry ID")
+                paste_action.triggered.connect(partial(self.paste_data_in_cell, editor, clipboard_data))
+                menu.addAction(paste_action)
+            menu.exec(editor.mapToGlobal(pos))
+
+    def paste_data_in_cell(self, editor: QLineEdit, data):
+        editor.insert(data)
+
+
 def handle_dynamic_data_table_cell_changed_callback(table, row, column):
     # Only interested in the primary column updates
     if column != 0:
@@ -109,8 +137,10 @@ def extract_dynamic_data_table_data(table) -> dict | None:
     return modifications
 
 
-def create_dynamic_data_table(readonly: bool = False) -> QTableWidget:
+def create_dynamic_data_table(root_gui_object: 'LitRPGToolsDesktopGUI', readonly: bool = False) -> QTableWidget:
     dynamic_modifications_table = QTableWidget()
+    delegate = ContextMenuDynamicDataItemDelegate(root_gui_object, dynamic_modifications_table)
+    dynamic_modifications_table.setItemDelegate(delegate)
     dynamic_modifications_table.setColumnCount(4)
     dynamic_modifications_table.setHorizontalHeaderItem(0, QTableWidgetItem("Modification Target"))
     dynamic_modifications_table.setHorizontalHeaderItem(1, QTableWidgetItem("Modification Type"))
@@ -123,37 +153,61 @@ def create_dynamic_data_table(readonly: bool = False) -> QTableWidget:
         dynamic_modifications_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     else:
         dynamic_modifications_table.cellChanged.connect(partial(handle_dynamic_data_table_cell_changed_callback, dynamic_modifications_table))
-        dynamic_modifications_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        dynamic_modifications_table.customContextMenuRequested.connect(partial(create_dynamic_data_table_context_menu, dynamic_modifications_table))
+
+    # Context menu
+    dynamic_modifications_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+    dynamic_modifications_table.customContextMenuRequested.connect(partial(create_dynamic_data_table_context_menu, root_gui_object, dynamic_modifications_table, readonly))
 
     return dynamic_modifications_table
 
 
-def create_dynamic_data_table_context_menu(table: QTableWidget, pos):
-    # Get the pertinent row or bail
-    if table.itemAt(pos) is None:
-        return
-    row = table.itemAt(pos).row()
-
-    # Create some actions and map these to functions
-    insert_above_action = QAction("Insert Row Above")
-    insert_above_action.triggered.connect(partial(dynamic_data_table_insert_row, table, row))
-    insert_row_below_action = QAction("Insert Row Below")
-    insert_row_below_action.triggered.connect(partial(dynamic_data_table_insert_row, table, row + 1))
-    move_row_up_action = QAction("Move Row Up")
-    move_row_up_action.triggered.connect(partial(dynamic_data_table_move_row_up, table, row))
-    move_row_down_action = QAction("Move Row Down")
-    move_row_down_action.triggered.connect(partial(dynamic_data_table_move_row_down, table, row))
-
-    # Context menu
+def create_dynamic_data_table_context_menu(root_gui_object: 'LitRPGToolsDesktopGUI', table: QTableWidget, readonly, pos):
     menu = QMenu()
-    menu.addAction(insert_above_action)
-    menu.addAction(insert_row_below_action)
-    if row != 0:
-        menu.addAction(move_row_up_action)
-    if row != table.rowCount() - 1:
-        menu.addAction(move_row_down_action)
+
+    # Copy behaviour
+    copy_action = QAction("Copy Dynamic Data Operations to Clipboard")
+    copy_action.triggered.connect(partial(extract_dynamic_data_to_clipboard, root_gui_object, table))
+    menu.addAction(copy_action)
+
+    # These are only displayed in specific circumstances
+    if not readonly:
+
+        # Paste clipboard behaviour
+        clipboard_data = root_gui_object.get_clipboard_item("DYNAMIC_DATA")
+        if clipboard_data is not None:
+            paste_action = QAction("Paste Clipboard Dynamic Data")
+            paste_action.triggered.connect(partial(fill_dynamic_modifications_table, table, clipboard_data, False))
+            menu.addAction(paste_action)
+
+        # Get the pertinent row or bail
+        if table.itemAt(pos) is not None:
+            menu.addSeparator()
+            cell = table.itemAt(pos)
+            row = cell.row()
+
+            # Create some actions and map these to functions
+            insert_above_action = QAction("Insert Row Above")
+            insert_above_action.triggered.connect(partial(dynamic_data_table_insert_row, table, row))
+            insert_row_below_action = QAction("Insert Row Below")
+            insert_row_below_action.triggered.connect(partial(dynamic_data_table_insert_row, table, row + 1))
+            move_row_up_action = QAction("Move Row Up")
+            move_row_up_action.triggered.connect(partial(dynamic_data_table_move_row_up, table, row))
+            move_row_down_action = QAction("Move Row Down")
+            move_row_down_action.triggered.connect(partial(dynamic_data_table_move_row_down, table, row))
+
+            # Context menu
+            menu.addAction(insert_above_action)
+            menu.addAction(insert_row_below_action)
+            if row != 0:
+                menu.addAction(move_row_up_action)
+            if row != table.rowCount() - 1:
+                menu.addAction(move_row_down_action)
+
     menu.exec(table.mapToGlobal(pos))
+
+
+def paste_data_in_cell(cell, data):
+    cell.insertText(data)
 
 
 def dynamic_data_table_insert_row(table: QTableWidget, row: int):
@@ -216,7 +270,12 @@ def dynamic_data_table_move_row_down(table: QTableWidget, row: int):
     table.removeRow(row)
 
 
-def fill_dynamic_modifications_table(table: QTableWidget, data: Dict[str, Tuple[str, bool, str]], readonly: bool = False):
+def extract_dynamic_data_to_clipboard(root_gui_object: 'LitRPGToolsDesktopGUI', table: QTableWidget):
+    data = extract_dynamic_data_table_data(table)
+    root_gui_object.save_clipboard_item("DYNAMIC_DATA", data)
+
+
+def fill_dynamic_modifications_table(table: QTableWidget, data: Dict[str, Tuple[str, str, str]], readonly: bool = False):
     row_count = len(data)
     if not readonly:
         row_count += 1

@@ -2,7 +2,7 @@ from functools import partial
 from typing import TYPE_CHECKING, List
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QMouseEvent
 from PyQt6.QtWidgets import QDialog, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QPushButton, QFormLayout, QLabel, QMessageBox, QMenu, QWidget, QHBoxLayout, QVBoxLayout, QListWidgetItem, QListWidget, QAbstractItemView, QScrollArea, QInputDialog
 from indexed import IndexedOrderedDict
 
@@ -11,7 +11,6 @@ from desktop import dynamic_data_components, entry_components
 from desktop.custom_generic_components import add_checkbox_in_table_at, VisibleDynamicSplitPanel
 
 if TYPE_CHECKING:
-    from data_manager import LitRPGToolsEngine
     from desktop.gui import LitRPGToolsDesktopGUI
     from desktop.character_components import CharacterTab
 
@@ -222,6 +221,7 @@ class CategoryView(QScrollArea):
         super().__init__()
         self.root_gui_object = root_gui_object
         self.parent_gui_object = parent_gui_object
+        self.selected_entry = None
 
         # Current index box
         self.__current_info = QWidget()
@@ -240,6 +240,26 @@ class CategoryView(QScrollArea):
         self.setWidget(self.__results_view)
         self.setWidgetResizable(True)
 
+    def create_context_menu(self, pos):
+        if self.selected_entry is None:
+            return
+
+        context_menu = QMenu(self)
+
+        # Create actions for the context menu
+        copy_id_to_clipboard_action = QAction("Copy Current Entry ID", self)
+        copy_id_to_clipboard_action.triggered.connect(self.copy_id_to_clipboard)
+
+        # Add actions to the context menu
+        context_menu.addAction(copy_id_to_clipboard_action)
+
+        # Show the context menu at the mouse position
+        context_menu.exec(self.mapToGlobal(pos))
+
+    def copy_id_to_clipboard(self):
+        root_entry_id = self.root_gui_object.data_manager.get_root_entry_id_in_series(self.selected_entry.unique_id)
+        self.root_gui_object.save_clipboard_item("ENTRY_ID", "$${ID:" + root_entry_id + ":ID}$$")
+
     def draw(self):
         # Clear out our current data
         for i in reversed(range(1, self.__results_view_layout.count())):
@@ -255,8 +275,8 @@ class CategoryView(QScrollArea):
         if item is None:
             return
         entry_id = item.data(Qt.ItemDataRole.UserRole)
-        entry = self.root_gui_object.data_manager.get_entry_by_id(entry_id)
-        self.__draw_entry(entry)
+        self.selected_entry = self.root_gui_object.data_manager.get_entry_by_id(entry_id)
+        self.__draw_entry(self.selected_entry)
 
     def __draw_entry(self, entry: Entry):
         character = self.root_gui_object.data_manager.get_character_by_id(entry.character_id)
@@ -275,8 +295,12 @@ class CategoryView(QScrollArea):
         # Form
         entry_form = QWidget()
         entry_form_layout = QFormLayout()
-        entry_components.create_entry_form(self.root_gui_object.data_manager, entry_form_layout, character, category, entry, current_index, header=True, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
+        entry_components.create_entry_form(self.root_gui_object, entry_form_layout, character, category, entry, current_index, header=True, readonly=True, translate_with_dynamic_data=should_display_dynamic_data, dynamic_data_index=target_index)
         entry_form.setLayout(entry_form_layout)
+
+        # Context menu
+        entry_form.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        entry_form.customContextMenuRequested.connect(self.create_context_menu)
 
         # Controls
         entry_controls = QWidget()
@@ -322,11 +346,11 @@ class CategoryView(QScrollArea):
         entry_components.set_entry_as_head(self.root_gui_object.data_manager, entry)
 
     def __handle_edit_callback(self, entry: Entry):
-        entry_components.edit_entry(self.root_gui_object.data_manager, self, entry)
+        entry_components.edit_entry(self.root_gui_object, self, entry)
         self.parent_gui_object.draw()
 
     def __handle_update_callback(self, entry: Entry):
-        update = entry_components.update_entry(self.root_gui_object.data_manager, self, entry)
+        update = entry_components.update_entry(self.root_gui_object, self, entry)
         if update is not None:
             self.parent_gui_object.set_curently_selected(self.root_gui_object.data_manager.get_entry_index_in_history(update.unique_id))
         self.parent_gui_object.draw()
@@ -388,11 +412,11 @@ class CategoryDialog(QDialog):
         self.__is_singleton = QCheckBox()
 
         # Dynamic data modifications
-        self.__dynamic_data_table = dynamic_data_components.create_dynamic_data_table()
+        self.__dynamic_data_table = dynamic_data_components.create_dynamic_data_table(self.gui)
         self.__dynamic_data_table.cellChanged.connect(partial(dynamic_data_components.handle_dynamic_data_table_cell_changed_callback, self.__dynamic_data_table))
 
         # Dynamic modification templating
-        self.__dynamic_data_templates_table = dynamic_data_components.create_dynamic_data_table()
+        self.__dynamic_data_templates_table = dynamic_data_components.create_dynamic_data_table(self.gui)
         self.__dynamic_data_templates_table.cellChanged.connect(partial(dynamic_data_components.handle_dynamic_data_table_cell_changed_callback, self.__dynamic_data_templates_table))
 
         # Buttons
@@ -668,9 +692,11 @@ class CategoryDialog(QDialog):
         self.__category_properties_table.removeRow(row)
 
 
-def add_or_edit_category(engine: 'LitRPGToolsEngine', category: Category | None):
+def add_or_edit_category(root_gui_object: 'LitRPGToolsDesktopGUI', category: Category | None):
+    engine = root_gui_object.data_manager
+
     # Build a dialog to edit the current category information
-    edit_category_dialog = CategoryDialog(engine, category)
+    edit_category_dialog = CategoryDialog(root_gui_object, category)
     edit_category_dialog.exec()
 
     # Validate dialog output
@@ -697,7 +723,7 @@ def delete_category(parent: 'LitRPGToolsDesktopGUI', category: Category):
     parent.draw()
 
 
-def create_category_form(target_layout, category: Category):
+def create_category_form(root_gui_object: 'LitRPGToolsDesktopGUI', target_layout, category: Category):
     # Add our header info
     target_layout.addRow("Category:", QLabel(category.name))
     target_layout.addRow("", QLabel())
@@ -731,11 +757,11 @@ def create_category_form(target_layout, category: Category):
     target_layout.addRow("Is singleton?", is_singleton_check_box)
 
     # Dynamic data modifications
-    ddm_widget = dynamic_data_components.create_dynamic_data_table(readonly=True)
+    ddm_widget = dynamic_data_components.create_dynamic_data_table(root_gui_object, readonly=True)
     dynamic_data_components.fill_dynamic_modifications_table(ddm_widget, category.dynamic_data_operations, readonly=True)
     target_layout.addRow("Dynamic Data", ddm_widget)
 
     # Dynamic data modification templates
-    ddmt_widget = dynamic_data_components.create_dynamic_data_table(readonly=True)
+    ddmt_widget = dynamic_data_components.create_dynamic_data_table(root_gui_object, readonly=True)
     dynamic_data_components.fill_dynamic_modifications_table(ddmt_widget, category.dynamic_data_operation_templates, readonly=True)
     target_layout.addRow("Dynamic Data Templates for Entries", ddmt_widget)
