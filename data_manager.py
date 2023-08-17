@@ -40,7 +40,12 @@ class LitRPGToolsEngine:
         self.__dynamic_data_store = DynamicDataStore(self)
 
     def get_data_object(self):
-        return DataFile(self.__characters, self.__categories, self.__history, self.__entries, self.__outputs, self.gsheet_credentials_path, self.__history_index)
+        # Sort our entries just in case
+        sorted_entries = dict()
+        for entry_id in self.__history:
+            sorted_entries[entry_id] = self.__entries[entry_id]
+
+        return DataFile(self.__characters, self.__categories, self.__history, sorted_entries, self.__outputs, self.gsheet_credentials_path, self.__history_index)
 
     def set_data_object(self, json_data):
         if "file_version" not in json_data:
@@ -57,6 +62,7 @@ class LitRPGToolsEngine:
         self.__outputs = data_handler.outputs
         self.__history = data_handler.history
         self.__history_index = data_handler.history_index
+        self.gsheet_credentials_path = data_handler.gsheets_credentials_path
 
         # Rebuild our caches
         self.__rebuild_caches()

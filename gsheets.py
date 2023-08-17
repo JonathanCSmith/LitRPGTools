@@ -52,7 +52,10 @@ class OverviewSheet:
         # Cleanse our data
         for r_i in range(len(data_to_write)):
             for c_i in range(len(data_to_write[r_i])):
-                data_to_write[r_i][c_i] = data_to_write[r_i][c_i].replace("\t", "    ")
+                tmp_data = data_to_write[r_i][c_i].replace("    ", "\t")
+                if tmp_data.startswith("+"):
+                    tmp_data = "'" + tmp_data
+                data_to_write[r_i][c_i] = tmp_data
 
         # Range pointers
         start = "A" + str(self.current_write_index)
@@ -162,7 +165,10 @@ class HistorySheet:
         # Cleanse our data
         for r_i in range(len(data_to_write)):
             for c_i in range(len(data_to_write[r_i])):
-                data_to_write[r_i][c_i] = data_to_write[r_i][c_i].replace("\t", "    ")
+                tmp_data = data_to_write[r_i][c_i].replace("    ", "\t")
+                if tmp_data.startswith("+"):
+                    tmp_data = "'" + tmp_data
+                data_to_write[r_i][c_i] = tmp_data
 
         # Range pointers
         start = "A" + str(self.current_write_index)

@@ -3,6 +3,11 @@ from abc import abstractmethod
 
 """
 High Priority:
+TODO: If no gsheets present, gsheets progress bar is made and not reported to the user
+TODO: Edit output target doesnt work
+TODO: Automatic resizing edit entry dialog causes scroll areas to mess up
+
+Medium Priority:
 TODO: Output View, order entries not in output by actual entry index (and display corresponding entry index in the synopsis)
 TODO: Enter = run search
 TODO: Autosave to remember default save path?

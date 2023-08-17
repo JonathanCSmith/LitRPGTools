@@ -71,7 +71,6 @@ class DynamicDataStore:
         self.__function_store.clear()
 
         # Intermediate caches - these are necessary because different data sets are 'preserved' differnently
-        character_category_flags = dict()  # Used as a flag to check if a character/category combo has been initialised previously. This ensures category specific dynamic data is only evaluated once
         rolling_data_cache = dict()  # This cache 'remembers' all non-final dynamic data operations. It is updated in a 'rolling' type manner as the loop progresses
         unevaluated_final_category_data_cache = dict()  # This is used to cache the category specific dynamic data to apply at the end of a given loop. It is updated in a 'rolling' type manner as the loop progresses.
         unevaluated_final_entry_data_cache = dict()  # This is used to cache the entry specific dynamic data to apply at the end of a given loop. It is updated in a 'rolling' type manner as the loop progresses.
@@ -87,15 +86,23 @@ class DynamicDataStore:
                 self.__value_store[0] = dict()
                 self.__function_store[0] = dict()
 
+                # Preallocate for each character
                 for character in characters:
                     self.__value_store[0][character.unique_id] = dict()  # We have to preallocate needlessly here so that the lookups this loop don't fail
                     self.__function_store[0][character.unique_id] = dict()
 
                     # Cache preallocations - see above for reasons
-                    character_category_flags[character.unique_id] = list()
                     rolling_data_cache[character.unique_id] = dict()
                     unevaluated_final_category_data_cache[character.unique_id] = list()  # Interior will be tuples - done to allow multiple entries editing the same key
                     unevaluated_final_entry_data_cache[character.unique_id] = list()  # Interior will be tuples - done to allow multiple entries editing the same key
+
+                    # Initialise our categories so that we ensure that their default dynamic data is available no matter what
+                    for category_id in character.categories:
+                        category = self.__engine.get_category_by_id(category_id)
+
+                        # Extract the category specific dynamic data
+                        for dynamic_data_key, (dynamic_data_type, dynamic_data_scope, dynamic_data_operation) in category.dynamic_data_operations.items():
+                            self.__evaluate_dynamic_data_operation(dynamic_data_key, dynamic_data_type, dynamic_data_scope, dynamic_data_operation, character.unique_id, 0, unevaluated_final_category_data_cache, rolling_data_cache)
 
             # We always copy our data from the previous loop iteration so that it can be used internally within the loop operation
             else:
@@ -108,23 +115,13 @@ class DynamicDataStore:
 
             # Debugging
             if self.__debug:
-                if history_index == 80:
+                if history_index == 62:
                     print("BREAK")
 
             # Details relevant for this entry
             entry = self.__engine.get_entry_by_id(entry_id)
             character = self.__engine.get_character_by_id(entry.character_id)
             category = self.__engine.get_category_by_id(entry.category_id)
-
-            # Only perform this operation if not done previously (for a given char + cat combo)
-            if category.unique_id not in character_category_flags[character.unique_id]:
-
-                # Extract the category specific dynamic data
-                for dynamic_data_key, (dynamic_data_type, dynamic_data_scope, dynamic_data_operation) in category.dynamic_data_operations.items():
-                    self.__evaluate_dynamic_data_operation(dynamic_data_key, dynamic_data_type, dynamic_data_scope, dynamic_data_operation, character.unique_id, history_index, unevaluated_final_category_data_cache, rolling_data_cache)
-
-                # Update our cache marker to indicate we've processed this category for this character before
-                character_category_flags[character.unique_id].append(category.unique_id)
 
             # If we are the root in a lineage, we should be evaluating the template dynamic data here too (i.e. once per lineage)
             root_entry_id = self.__engine.get_root_entry_id_in_series(entry.unique_id)
@@ -169,13 +166,24 @@ class DynamicDataStore:
             dynamic_data_key = self.__resolve_id_pointers(dynamic_data_key, root_entry_id)
             dynamic_data_operation = self.__resolve_id_pointers(dynamic_data_operation, root_entry_id)
 
+        # Resolve any dynamic references in our key
+        dynamic_data_key = self.__resolve_dependencies(character_id, history_index, dynamic_data_key, root_entry_id)  # Artificially add tags here to force a single match
+
+        # Check our key data for character redirects
+        dynamic_character_pointer_check_results = self.__extract_character_reference(dynamic_data_key)
+        if dynamic_character_pointer_check_results is not None:
+            dynamic_data_key = dynamic_character_pointer_check_results[0]
+            character_id_key = dynamic_character_pointer_check_results[1]
+        else:
+            character_id_key = character_id
+
         match dynamic_data_scope:
             case "FINAL":
-                final_operation_store[character_id].append((dynamic_data_key, dynamic_data_type, dynamic_data_scope, dynamic_data_operation, root_entry_id))
+                final_operation_store[character_id_key].append((dynamic_data_key, dynamic_data_type, dynamic_data_scope, dynamic_data_operation, root_entry_id))
 
             case "FUNCTION":
                 dynamic_data_key = self.__resolve_dependencies(character_id, history_index, dynamic_data_key, root_entry_id)
-                self.__function_store[history_index][character_id][dynamic_data_key] = (dynamic_data_type, dynamic_data_scope, dynamic_data_operation)
+                self.__function_store[history_index][character_id_key][dynamic_data_key] = (dynamic_data_type, dynamic_data_scope, dynamic_data_operation)
 
             case "INSTANT":
                 # Debug - key check
@@ -184,13 +192,12 @@ class DynamicDataStore:
                         print("BREAK")
 
                 # Replace dependencies in the operation string
-                dynamic_data_key = self.__resolve_dependencies(character_id, history_index, dynamic_data_key, root_entry_id)
                 dynamic_data_operation = self.__resolve_dependencies(character_id, history_index, dynamic_data_operation, root_entry_id)
 
                 # Apply to both our value stores (one with and one without final values applied).
-                self.__apply_dynamic_data_operation(self.__value_store[history_index][character_id], dynamic_data_key, dynamic_data_type, dynamic_data_operation)
+                self.__apply_dynamic_data_operation(self.__value_store[history_index][character_id_key], dynamic_data_key, dynamic_data_type, dynamic_data_operation)
                 if operation_results_store is not None:
-                    self.__apply_dynamic_data_operation(operation_results_store[character_id], dynamic_data_key, dynamic_data_type, dynamic_data_operation)
+                    self.__apply_dynamic_data_operation(operation_results_store[character_id_key], dynamic_data_key, dynamic_data_type, dynamic_data_operation)
 
     def __resolve_dependencies(self, character_id: str, history_index: int, operation_string: str, root_entry_id: str = None):
         """
@@ -216,32 +223,39 @@ class DynamicDataStore:
                 break
 
             # Extract our target string
-            lookup_string = operation_string[start_token_index + len(front_token):end_token_index]
+            true_lookup_string = operation_string[start_token_index + len(front_token):end_token_index]
 
             # Debug
             if self.__debug:
-                if lookup_string == "INFLUENCE_RATE":
+                if true_lookup_string == "INFLUENCE_RATE":
                     print("DEBUG")
 
             # Check if we have a modified character pointer
-            target_character_id = self.__extract_character_reference(lookup_string)
-            if target_character_id is None:
-                target_character_id = character_id
+            out = self.__extract_character_reference(true_lookup_string)
+            if out is not None:
+                if out[1] not in self.__value_store[0]:
+                    return "BAD CHARACTER REFERENCE IN LOOKUP: " + true_lookup_string
+
+                lookup_string = out[0]
+                current_character_id = out[1]
+            else:
+                lookup_string = true_lookup_string
+                current_character_id = character_id
 
             # Perform the lookup in our function store as 1st priority
-            if lookup_string in self.__function_store[history_index][target_character_id]:
-                target_string = self.__resolve_function(target_character_id, history_index, lookup_string, root_entry_id)
+            if lookup_string in self.__function_store[history_index][current_character_id]:
+                target_string = self.__resolve_function(current_character_id, history_index, lookup_string, root_entry_id)
 
             # Then check our current value store
-            elif lookup_string in self.__value_store[history_index][target_character_id]:
-                target_string = self.__value_store[history_index][target_character_id][lookup_string]
+            elif lookup_string in self.__value_store[history_index][current_character_id]:
+                target_string = self.__value_store[history_index][current_character_id][lookup_string]
 
             else:
-                target_string = "Could not find lookup reference for key: " + lookup_string + ". Full operation string was: " + operation_string.replace("!${", "!|$|{").replace("}$!", "}|$|!")
+                return "Could not find lookup reference for key: " + str(true_lookup_string) + ". Full operation string was: " + str(operation_string).replace("!${", "!|$|{").replace("}$!", "}|$|!")
 
             # Substitute our lookup from the back
             target_string = str(target_string)
-            operation_string = target_string.join(operation_string.rsplit(front_token + lookup_string + back_token, 1))
+            operation_string = target_string.join(operation_string.rsplit(front_token + true_lookup_string + back_token, 1))
 
         return operation_string
 
@@ -280,7 +294,7 @@ class DynamicDataStore:
     def __resolve_rolling_pointers(self, text: str, entry_id: str) -> str:
         return text.replace("$${ROLLING}$$", "||ID||:" + entry_id + "")
 
-    def __extract_character_reference(self, text: str) -> str | None:
+    def __extract_character_reference(self, text: str) -> Tuple[str, str] | None:
         # Search for our markers
         front_token = "$${CHAR:"
         back_token = ":CHAR}$$"
@@ -291,7 +305,9 @@ class DynamicDataStore:
         if start_token_index == -1 or end_token_index == -1 or start_token_index >= end_token_index:
             return None
 
-        return text[start_token_index + len(front_token):end_token_index]
+        # Returns
+        char_id = text[start_token_index + len(front_token):end_token_index]
+        return text.replace(front_token + char_id + back_token, ""), char_id
 
     def __resolve_expressions(self, text: str):
         pattern = "!\={([^(}\=!)]*)}\=!"
@@ -310,7 +326,8 @@ class DynamicDataStore:
         (function_data_type, function_global_flag, function_operation) = self.__function_store[history_index][character_id][dependency_key]
 
         # Inject our entry pointer into ROLLING references
-        function_operation = self.__resolve_rolling_pointers(function_operation, root_entry_id)
+        if root_entry_id is not None:
+            function_operation = self.__resolve_rolling_pointers(function_operation, root_entry_id)
 
         # Resolve any lookups in the operation string
         resolved_value = self.__resolve_dependencies(character_id, history_index, function_operation, root_entry_id)

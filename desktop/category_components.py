@@ -675,11 +675,11 @@ class CategoryDialog(QDialog):
         self.edit_instructions.append(("MOVE DOWN", row))
 
         # Perform action @ GUI
-        self.__category_properties_table.insertRow(row + 1)
+        self.__category_properties_table.insertRow(row + 2)
         for column in range(self.__category_properties_table.columnCount()):
             item = self.__category_properties_table.takeItem(row, column)
             if item:
-                self.__category_properties_table.setItem(row + 1, column, item)
+                self.__category_properties_table.setItem(row + 2, column, item)
 
             # Need to check for cell widgets and handle
             else:
@@ -687,7 +687,7 @@ class CategoryDialog(QDialog):
                 if isinstance(cell_widget, QCheckBox):
                     check_box = QCheckBox()
                     check_box.setChecked(cell_widget.isChecked())
-                    self.__category_properties_table.setCellWidget(row + 1, column, check_box)
+                    self.__category_properties_table.setCellWidget(row + 2, column, check_box)
 
         self.__category_properties_table.removeRow(row)
 
