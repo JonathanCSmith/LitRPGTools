@@ -467,9 +467,12 @@ class HistoryView(QWidget):
         # Create actions for the context menu
         copy_id_to_clipboard_action = QAction("Copy Current Entry ID", self)
         copy_id_to_clipboard_action.triggered.connect(self.copy_id_to_clipboard)
+        copy_character_id_to_clipboard_action = QAction("Copy Current Character ID", self)
+        copy_character_id_to_clipboard_action.triggered.connect(self.copy_character_to_clipboard)
 
         # Add actions to the context menu
         context_menu.addAction(copy_id_to_clipboard_action)
+        context_menu.addAction(copy_character_id_to_clipboard_action)
 
         # Show the context menu at the mouse position
         context_menu.exec(self.mapToGlobal(pos))
@@ -477,6 +480,9 @@ class HistoryView(QWidget):
     def copy_id_to_clipboard(self):
         root_entry_id = self.root_gui_object.data_manager.get_root_entry_id_in_series(self.entry.unique_id)
         self.root_gui_object.save_clipboard_item("ENTRY_ID", "$${ID:" + root_entry_id + ":ID}$$")
+
+    def copy_character_to_clipboard(self):
+        self.root_gui_object.save_clipboard_item("CHARACTER_ID", "$${CHAR:" + self.entry.character_id + ":CHAR}$$")
 
     def draw(self):
         # We always need to redraw as the underlying data may have changed

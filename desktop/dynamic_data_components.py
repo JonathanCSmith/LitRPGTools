@@ -81,11 +81,19 @@ class ContextMenuDynamicDataItemDelegate(QStyledItemDelegate):
         editor = self.sender()
         if isinstance(editor, QLineEdit):
             menu = editor.createStandardContextMenu()
-            clipboard_data = self.root_gui_object.get_clipboard_item("ENTRY_ID")
-            if clipboard_data is not None:
-                paste_action = QAction("Paste Clipboard Entry ID")
-                paste_action.triggered.connect(partial(self.paste_data_in_cell, editor, clipboard_data))
-                menu.addAction(paste_action)
+
+            entry_clipboard_data = self.root_gui_object.get_clipboard_item("ENTRY_ID")
+            if entry_clipboard_data is not None:
+                paste_entry_action = QAction("Paste Clipboard Entry ID")
+                paste_entry_action.triggered.connect(partial(self.paste_data_in_cell, editor, entry_clipboard_data))
+                menu.addAction(paste_entry_action)
+
+            character_clipboard_data = self.root_gui_object.get_clipboard_item("CHARACTER_ID")
+            if character_clipboard_data is not None:
+                paste_character_action = QAction("Paste Clipboard Character ID")
+                paste_character_action.triggered.connect(partial(self.paste_data_in_cell, editor, character_clipboard_data))
+                menu.addAction(paste_character_action)
+
             menu.exec(editor.mapToGlobal(pos))
 
     def paste_data_in_cell(self, editor: QLineEdit, data):
