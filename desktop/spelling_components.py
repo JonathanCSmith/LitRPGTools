@@ -9,7 +9,7 @@ from enchant.errors import TokenizerNotFoundError
 from PyQt6.QtWidgets import QPlainTextEdit, QMenu
 
 if TYPE_CHECKING:
-    from desktop.gui import LitRPGToolsDesktopGUI
+    from desktop.guis import DesktopGUI
 
 
 class SpellTextEdit(QPlainTextEdit):
@@ -20,7 +20,7 @@ class SpellTextEdit(QPlainTextEdit):
     # into a second column.
     max_suggestions = 20
 
-    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', *args):
+    def __init__(self, root_gui_object: 'DesktopGUI', *args):
         QPlainTextEdit.__init__(self, *args)
         self.root_gui_object = root_gui_object
 
@@ -175,7 +175,7 @@ class SpellTextEdit(QPlainTextEdit):
 
 
 class SpellTextEditSingleLine(SpellTextEdit):
-    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', *args):
+    def __init__(self, root_gui_object: 'DesktopGUI', *args):
         super(SpellTextEditSingleLine, self).__init__(root_gui_object, *args)
 
         QTextEdFontMetrics = QFontMetrics(self.font())

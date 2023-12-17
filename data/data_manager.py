@@ -4,19 +4,19 @@ from typing import Dict, List, TYPE_CHECKING
 from indexed import IndexedOrderedDict
 
 import search_helper
-import utils
-from data import Output, Entry, DataFile, Character, Category
-from dynamic import DynamicDataStore
-from utils import handle_old_save_file_loader
+from data.models import Output, Entry, DataFile, Character, Category
+from data.dynamic import DynamicDataStore
+from utilities.dict import move_item_in_iod_by_index_to_position, move_item_in_list_by_index_to_position
+from utilities.io import save_json, load_json, handle_old_save_file_loader
 
 if TYPE_CHECKING:
+    from main import LitRPGToolsRuntime
     from progress_bar import LitRPGToolsProgressUpdater
-    from session import LitRPGToolsSession
 
 
-class LitRPGToolsEngine:
-    def __init__(self, session: 'LitRPGToolsSession'):
-        self.session = session
+class DataManager:
+    def __init__(self, runtime: 'LitRPGToolsRuntime'):
+        self.runtime = runtime
 
         # Permanent Data
         self.__history = list()
@@ -39,46 +39,18 @@ class LitRPGToolsEngine:
         # Dynamic data store
         self.__dynamic_data_store = DynamicDataStore(self)
 
-    def get_data_object(self):
-        # Sort our entries just in case
-        sorted_entries = dict()
-        for entry_id in self.__history:
-            sorted_entries[entry_id] = self.__entries[entry_id]
-
-        return DataFile(self.__characters, self.__categories, self.__history, sorted_entries, self.__outputs, self.gsheet_credentials_path, self.__history_index)
-
-    def set_data_object(self, json_data):
-        if "file_version" not in json_data:
-            data_handler = handle_old_save_file_loader(json_data)
-            if data_handler is None:
-                return
-        else:
-            data_handler = DataFile.from_json(json_data)
-
-        # Unpack the data
-        self.__characters = data_handler.characters
-        self.__categories = data_handler.categories
-        self.__entries = data_handler.entries
-        self.__outputs = data_handler.outputs
-        self.__history = data_handler.history
-        self.__history_index = data_handler.history_index
-        self.gsheet_credentials_path = data_handler.gsheets_credentials_path
-
-        # Rebuild our caches
-        self.__rebuild_caches()
-
     def get_unassigned_gsheets(self):
-        if isinstance(self.session.get_gsheets_handler(), str):
+        if isinstance(self.runtime.session.get_gsheets_handler(), str):
             return None
 
-        sheets = self.session.get_gsheets_handler().get_sheets()
+        sheets = self.runtime.session.get_gsheets_handler().get_sheets()
         for output in self.__outputs.values():
             if output.gsheet_target in sheets:
                 sheets.remove(output.gsheet_target)
         return sheets
 
-    def output_to_gsheets(self, progress_bar: 'LitRPGToolsProgressUpdater', session: 'LitRPGToolsSession'):
-        gsheets_handler = session.get_gsheets_handler()
+    def output_to_gsheets(self, progress_bar: 'LitRPGToolsProgressUpdater'):
+        gsheets_handler = self.runtime.session.get_gsheets_handler()
         if isinstance(gsheets_handler, str):
             return
 
@@ -88,8 +60,9 @@ class LitRPGToolsEngine:
         progress_bar.set_maximum(worst_case_estimate)
 
         # Loop through outputs
-        last_seen = -1
+        old_target_index = -1
         view_cache = dict()  # Because we are printing a rolling window of 2 outputs per output, we may as well cache
+        named_ranges = list()
         for output in self.__outputs.values():
             estimate_work_done = current_work_done
 
@@ -100,6 +73,7 @@ class LitRPGToolsEngine:
                 continue
 
             # Open up our target
+            named_ranges.clear()
             try:
                 gsheets_handler.open(output.gsheet_target)
             except ConnectionAbortedError:
@@ -113,10 +87,10 @@ class LitRPGToolsEngine:
             for character in self.__characters.values():
 
                 # Create a 'view' for our previous output - so that it can easily be referenced from one document
-                if last_seen != -1:
+                if old_target_index != -1:
 
                     # Clear out our old sheets
-                    old_system_sheet = gsheets_handler.create_overview_sheet(character + " Previous View")
+                    old_system_sheet = gsheets_handler.create_overview_sheet(character.name + " Previous View")
                     old_system_sheet.clear_all()
 
                     # Loop through on a per category basis
@@ -131,7 +105,7 @@ class LitRPGToolsEngine:
 
                         # Get a 'view' of the current state of a category for a character
                         # It's also guaranteed not to be empty as we skip the first
-                        output_instance_view = view_cache[category_id + "_" + category.unique_id + "_" + str(target_index)]
+                        output_instance_view = view_cache[character.unique_id + "_" + category_id + "_" + str(old_target_index)]
 
                         # Write out our data
                         old_system_sheet.write(self, category, output_instance_view, target_index)
@@ -139,6 +113,9 @@ class LitRPGToolsEngine:
                         # Progress bar update
                         estimate_work_done += 2
                         progress_bar.set_current_work_done(estimate_work_done)
+
+                    # Copy our named range pointers into our total list
+                    named_ranges.extend(old_system_sheet.named_ranges)
 
                 # Clear out our current sheet
                 system_sheet = gsheets_handler.create_overview_sheet(character.name + " Current View")
@@ -157,7 +134,7 @@ class LitRPGToolsEngine:
                     # Get a 'view' of the current state of a category for a character
                     # It's also guaranteed not to be empty as we skip the first
                     output_instance_view = self.get_entries_for_character_and_category_at_history_index(character.unique_id, category_id, target_index)
-                    view_cache[category_id + "_" + category.unique_id + "_" + str(target_index)] = output_instance_view
+                    view_cache[character.unique_id + "_" + category_id + "_" + str(target_index)] = output_instance_view
 
                     # Write out our data
                     system_sheet.write(self, category, output_instance_view, target_index)
@@ -165,6 +142,9 @@ class LitRPGToolsEngine:
                     # Progress bar update
                     estimate_work_done += 2
                     progress_bar.set_current_work_done(estimate_work_done)
+
+                # Copy our named range pointers into our total list
+                named_ranges.extend(system_sheet.named_ranges)
 
                 # Correct our progressbar estimate
                 current_work_done += len(self.__entries) * 2
@@ -175,9 +155,21 @@ class LitRPGToolsEngine:
             history_sheet.clear_all()
             history_sheet.write(self, output)
 
+            # Copy our named range pointers into our total list
+            named_ranges.extend(history_sheet.named_ranges)
+
             # Further correct our progress bar - now you can see how bad the estimate was!
             current_work_done += len(self.__entries) * len(self.__characters) * 2
             progress_bar.set_current_work_done(current_work_done)
+
+            # Handle named ranges clean up - this can happen when an entry was deleted in the UI but printed previously to an output
+            current_named_ranges = history_sheet.worksheet.get_named_ranges()
+            for current_named_range in current_named_ranges:
+                if current_named_range.name not in named_ranges:
+                    gsheets_handler.spreadsheet.delete_named_range(current_named_range.name)
+
+            # No longer first
+            old_target_index = target_index
 
         # If we were successful save and finish!
         progress_bar.finish()
@@ -194,7 +186,7 @@ class LitRPGToolsEngine:
         return None
 
     def move_character_id_by_index_to_index(self, from_index, to_index):
-        self.__characters = utils.move_item_in_iod_by_index_to_position(self.__characters, from_index, to_index)
+        self.__characters = move_item_in_iod_by_index_to_position(self.__characters, from_index, to_index)
 
     def add_character(self, character: Character, rebuild_caches=True):
         if character.unique_id not in self.__characters:
@@ -217,8 +209,8 @@ class LitRPGToolsEngine:
                     historic_entries = self.__revisions[root_entry_id]
 
                     # Loop through our history, ignore dependency resolution as we know we are deleting everything
-                    for historic_entry in historic_entries:
-                        self.delete_entry(historic_entry, rebuild_caches=False)
+                    for historic_entry_id in historic_entries:
+                        self.delete_entry(historic_entry_id, rebuild_caches=False)
 
         # Now just directly reassign as its safe
         self.__characters[character.unique_id] = character
@@ -227,8 +219,8 @@ class LitRPGToolsEngine:
         if rebuild_caches:
             self.__rebuild_caches()
 
-    def delete_character(self, character: Character, rebuild_caches=True):
-        original_character = self.__characters[character.unique_id]
+    def delete_character(self, character_id: str, rebuild_caches=True):
+        original_character = self.__characters[character_id]
         for category_id in original_character.categories:
 
             # Get the entries that match this character and the deleted category for deletion
@@ -258,7 +250,7 @@ class LitRPGToolsEngine:
             return
 
         character = self.get_character_by_id(character_id)
-        character.categories = utils.move_item_in_list_by_index_to_position(character.categories, from_index, to_index)
+        character.categories = move_item_in_list_by_index_to_position(character.categories, from_index, to_index)
 
     def add_category(self, category: Category, rebuild_caches=True):
         if category not in self.__categories:
@@ -296,9 +288,11 @@ class LitRPGToolsEngine:
 
         # Update our dynamic data store
         self.__dynamic_data_store.update()
-        self.session.autosave()
+        self.runtime.autosave()
 
-    def delete_category(self, category: Category, rebuild_caches=True):
+    def delete_category(self, category_id: str, rebuild_caches=True):
+        category = self.get_category_by_id(category_id)
+
         # Get the entries that match this category for deletion
         for character_id in self.__character_category_root_entry_cache:
             character = self.__characters[character_id]
@@ -315,8 +309,7 @@ class LitRPGToolsEngine:
 
                 # Loop through our history, ignore dependency resolution as we know we are deleting everything
                 for historic_entry_id in historic_entries:
-                    entry = self.get_entry_by_id(historic_entry_id)
-                    self.delete_entry(entry, rebuild_caches=False)
+                    self.delete_entry(historic_entry_id, rebuild_caches=False)
 
         # Now just directly reassign as its safe
         del self.__categories[category.unique_id]
@@ -402,7 +395,7 @@ class LitRPGToolsEngine:
 
         # Update our dynamic data store
         self.__dynamic_data_store.update()
-        self.session.autosave()
+        self.runtime.autosave()
 
     def delete_output(self, output: Output, rebuild_caches=True):
         if output.unique_id not in self.__outputs:
@@ -527,9 +520,10 @@ class LitRPGToolsEngine:
 
         # Update our dynamic data store - the real reason this function exists
         self.__dynamic_data_store.update()
-        self.session.autosave()
+        self.runtime.autosave()
 
-    def move_entry_to(self, entry: Entry, index: int, rebuild_caches=True):
+    def move_entry_to(self, entry_id: str, index: int, rebuild_caches=True):
+        entry = self.get_entry_by_id(entry_id)
         if entry.parent_id is None and entry.child_id is None:
             self.__move_in_history(entry.unique_id, index, rebuild_caches=rebuild_caches)
             return
@@ -585,21 +579,21 @@ class LitRPGToolsEngine:
         # Insert our change into history
         self.__move_in_history(entry.unique_id, index, rebuild_caches=rebuild_caches)
 
-    def delete_entry_and_series(self, entry: Entry, rebuild_caches=True):
+    def delete_entry_and_series(self, entry_id: str, rebuild_caches=True):
+        entry = self.get_entry_by_id(entry_id)
         root_id = self.__revision_indices[entry.unique_id]
         revisions = self.__revisions[root_id]
 
         # Delete working backwards with no cache rebuild until the end
         for entry_id in reversed(revisions):
-            entry = self.get_entry_by_id(entry_id)
-            self.delete_entry(entry, rebuild_caches=False)
+            self.delete_entry(entry_id, rebuild_caches=False)
 
         # Rebuild caches
         if rebuild_caches:
             self.__rebuild_caches()
 
-    def delete_entry(self, entry: Entry, rebuild_caches=True):
-        entry = self.get_entry_by_id(entry.unique_id)
+    def delete_entry(self, entry_id: str, rebuild_caches=True):
+        entry = self.get_entry_by_id(entry_id)
 
         # Handle dependency reordering - we assume that what we are given is correct!
         parent_entry = self.get_entry_by_id(entry.parent_id)
@@ -723,7 +717,7 @@ class LitRPGToolsEngine:
 
         # Sort outputs based on their target index
         for value in sorted(self.__outputs.values(), key=lambda item: self.get_entry_index_in_history(item.target_entry_id)):
-            self.__outputs.move_to_end(value.unique_id)
+            self.__outputs.move_to_end(value.unique_id)  # TODO: FIXME
 
         # Rebuild output contents in case they changed
         last_seen = -1
@@ -755,6 +749,9 @@ class LitRPGToolsEngine:
             for output_member_id in to_remove:
                 output.ignored.remove(output_member_id)
 
+            # Sort our ignored list by index in history
+            output.ignored = sorted(output.ignored, key=lambda item: self.get_entry_index_in_history(item))
+
             # Update our 'last seen' lower bound capture
             last_seen = target_index
 
@@ -762,7 +759,7 @@ class LitRPGToolsEngine:
         self.__dynamic_data_store.update()
 
         # Autosave
-        self.session.autosave()
+        self.runtime.autosave()
 
     def get_dynamic_data_for_current_index_and_character_id(self, character_id: str, private: bool):
         return self.__dynamic_data_store.get_dynamic_data_for_character_id_at_index(self.__history_index, character_id, private)
@@ -799,3 +796,35 @@ class LitRPGToolsEngine:
                 results.append(category)
 
         return results
+
+    def load(self, file_path: str):
+        json_data = load_json(file_path)
+
+        # Try and handle file versions somewhat gracefully?
+        if "file_version" not in json_data:
+            data_handler = handle_old_save_file_loader(json_data)
+            if data_handler is None:
+                return
+        else:
+            data_handler = DataFile.from_json(json_data)
+
+        # Unpack the data
+        self.__characters = data_handler.characters
+        self.__categories = data_handler.categories
+        self.__entries = data_handler.entries
+        self.__outputs = data_handler.outputs
+        self.__history = data_handler.history
+        self.__history_index = data_handler.history_index
+        self.gsheet_credentials_path = data_handler.gsheets_credentials_path
+
+        # Rebuild our caches
+        self.__rebuild_caches()
+
+    def save(self, file_path: str):
+        # Sort our entries just in case
+        sorted_entries = dict()
+        for entry_id in self.__history:
+            sorted_entries[entry_id] = self.__entries[entry_id]
+
+        data_holder = DataFile(self.__characters, self.__categories, self.__history, sorted_entries, self.__outputs, self.gsheet_credentials_path, self.__history_index)
+        save_json(file_path, data_holder)

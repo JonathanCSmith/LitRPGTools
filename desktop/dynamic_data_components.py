@@ -1,72 +1,18 @@
 from functools import partial
 from typing import Dict, Tuple, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QPersistentModelIndex
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QTableWidgetItem, QTableWidget, QHeaderView, QComboBox, QFormLayout, QWidget, QLabel, QScrollArea, QVBoxLayout, QCheckBox, QHBoxLayout, QMenu, QStyledItemDelegate, QLineEdit
+from PyQt6.QtWidgets import QTableWidgetItem, QTableWidget, QHeaderView, QComboBox, QMenu, QStyledItemDelegate, QLineEdit
 
-from desktop.generic_components import LessIntrusiveComboBox
+from desktop.custom_generic_components import LessIntrusiveComboBox
 
 if TYPE_CHECKING:
-    from data_manager import LitRPGToolsEngine
-    from desktop.gui import LitRPGToolsDesktopGUI
-
-
-class DynamicDataTab(QWidget):
-    def __init__(self, engine: 'LitRPGToolsEngine', character_id: str):
-        super().__init__()
-        self._engine = engine
-        self.__character_id = character_id
-
-        # Toggle button
-        self.__toggle_private = False
-        self.__toggle_private_button = QCheckBox()
-        self.__toggle_private_button.setChecked(False)
-        self.__toggle_private_button.clicked.connect(self.__handle_toggle_private_callback)
-        self.__toggle_private_layout = QHBoxLayout()
-        self.__toggle_private_layout.addWidget(QLabel("Show Private:"))
-        self.__toggle_private_layout.addWidget(self.__toggle_private_button)
-        self.__toggle_private_layout.addStretch()
-        # self.__toggle_private_layout.setContentsMargins(0, 0, 0, 0)
-        self.__toggle_private_widget = QWidget()
-        self.__toggle_private_widget.setLayout(self.__toggle_private_layout)
-        self.__toggle_private_widget.setContentsMargins(0, 0, 0, 0)
-
-        # Layout
-        self.__form = QFormLayout()
-        self.__form_widget = QWidget()
-        self.__form_widget.setLayout(self.__form)
-        self.__scroll = QScrollArea()
-        self.__scroll.setWidget(self.__form_widget)
-        self.__scroll.setWidgetResizable(True)
-        self.__layout = QVBoxLayout()
-        self.__layout.addWidget(self.__scroll)
-        self.__layout.addWidget(self.__toggle_private_widget)
-        self.setLayout(self.__layout)
-
-        # Force update
-        self.draw()
-
-    def draw(self):
-        dynamic_data = self._engine.get_dynamic_data_for_current_index_and_character_id(self.__character_id, self.__toggle_private)
-        if dynamic_data is None:
-            return
-
-        # Remove old data
-        for row in range(self.__form.rowCount()):
-            self.__form.removeRow(0)
-
-        # Print our dynamic data
-        for k, v in dynamic_data.items():
-            self.__form.addRow(k, QLabel(str(v)))
-
-    def __handle_toggle_private_callback(self):
-        self.__toggle_private = self.__toggle_private_button.isChecked()
-        self.draw()
+    from desktop.guis import DesktopGUI
 
 
 class ContextMenuDynamicDataItemDelegate(QStyledItemDelegate):
-    def __init__(self, root_gui_object: 'LitRPGToolsDesktopGUI', *args):
+    def __init__(self, root_gui_object: 'DesktopGUI', *args):
         super().__init__(*args)
         self.root_gui_object = root_gui_object
 
@@ -145,7 +91,7 @@ def extract_dynamic_data_table_data(table) -> dict | None:
     return modifications
 
 
-def create_dynamic_data_table(root_gui_object: 'LitRPGToolsDesktopGUI', readonly: bool = False) -> QTableWidget:
+def create_dynamic_data_table(root_gui_object: 'DesktopGUI', readonly: bool = False) -> QTableWidget:
     dynamic_modifications_table = QTableWidget()
     delegate = ContextMenuDynamicDataItemDelegate(root_gui_object, dynamic_modifications_table)
     dynamic_modifications_table.setItemDelegate(delegate)
@@ -169,7 +115,7 @@ def create_dynamic_data_table(root_gui_object: 'LitRPGToolsDesktopGUI', readonly
     return dynamic_modifications_table
 
 
-def create_dynamic_data_table_context_menu(root_gui_object: 'LitRPGToolsDesktopGUI', table: QTableWidget, readonly, pos):
+def create_dynamic_data_table_context_menu(root_gui_object: 'DesktopGUI', table: QTableWidget, readonly, pos):
     menu = QMenu()
 
     # Copy behaviour
@@ -278,7 +224,7 @@ def dynamic_data_table_move_row_down(table: QTableWidget, row: int):
     table.removeRow(row)
 
 
-def extract_dynamic_data_to_clipboard(root_gui_object: 'LitRPGToolsDesktopGUI', table: QTableWidget):
+def extract_dynamic_data_to_clipboard(root_gui_object: 'DesktopGUI', table: QTableWidget):
     data = extract_dynamic_data_table_data(table)
     root_gui_object.save_clipboard_item("DYNAMIC_DATA", data)
 

@@ -3,3 +3,5 @@ uuid>=1.30
 pygsheets>=2.0.5
 pyenchant>=3.2.2
 indexed>=1.2.1
+pyperclip~=1.8.2
+platformdirs~=4.0.0

@@ -1,12 +1,9 @@
 import copy
 import re
-import math
-from typing import TYPE_CHECKING, Dict, Any, Tuple, List
-
-from data import Entry, Category
+from typing import TYPE_CHECKING, Dict, Any, Tuple
 
 if TYPE_CHECKING:
-    from data_manager import LitRPGToolsEngine
+    from data.data_manager import DataManager
 
 
 class DynamicDataOperation:
@@ -25,7 +22,7 @@ class DynamicDataOperation:
 
 
 class DynamicDataStore:
-    def __init__(self, engine: 'LitRPGToolsEngine'):
+    def __init__(self, engine: 'DataManager'):
         self.__engine = engine
         # self.__value_store: Dict[str, Dict[int, Dict[str, Any]]] = dict()
         self.__value_store: Dict[int, Dict[str, Dict[str, Any]]] = dict()
@@ -114,9 +111,8 @@ class DynamicDataStore:
                 self.__function_store[history_index] = copy.deepcopy(self.__function_store[history_index - 1])
 
             # Debugging
-            if self.__debug:
-                if history_index == 62:
-                    print("BREAK")
+            if self.__debug and history_index == 45:
+                print("BREAK")
 
             # Details relevant for this entry
             entry = self.__engine.get_entry_by_id(entry_id)
@@ -160,6 +156,9 @@ class DynamicDataStore:
         :param root_entry_id:
         :return:
         """
+        # Debug - key check
+        if self.__debug and "LOYALTY_EFFECTIVE" in dynamic_data_key:
+            print("BREAK")
 
         # Inject our reference keys here
         if root_entry_id is not None:
@@ -186,11 +185,6 @@ class DynamicDataStore:
                 self.__function_store[history_index][character_id_key][dynamic_data_key] = (dynamic_data_type, dynamic_data_scope, dynamic_data_operation)
 
             case "INSTANT":
-                # Debug - key check
-                if self.__debug:
-                    if dynamic_data_key == "GBP_EARNED":
-                        print("BREAK")
-
                 # Replace dependencies in the operation string
                 dynamic_data_operation = self.__resolve_dependencies(character_id, history_index, dynamic_data_operation, root_entry_id)
 
@@ -226,9 +220,8 @@ class DynamicDataStore:
             true_lookup_string = operation_string[start_token_index + len(front_token):end_token_index]
 
             # Debug
-            if self.__debug:
-                if true_lookup_string == "INFLUENCE_RATE":
-                    print("DEBUG")
+            if self.__debug and true_lookup_string == "LOYALTY_EARNED":
+                print("DEBUG")
 
             # Check if we have a modified character pointer
             out = self.__extract_character_reference(true_lookup_string)

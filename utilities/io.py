@@ -1,51 +1,31 @@
+import json
+import os.path
 from collections import OrderedDict
+from pathlib import Path
 
 from indexed import IndexedOrderedDict
 
-from data import Character, Category, Entry, Output, DataFile
+from data.models import DataFile, Category, Character, Entry, Output
 
 
-def move_item_in_indexedordererdict_by(iod: IndexedOrderedDict, key, shift) -> IndexedOrderedDict | None:
-    if key not in iod:
-        return None
+def load_json(file_path):
+    if not os.path.isfile(file_path):
+        raise NotADirectoryError()
 
-    # Cache our keys and our current index location
-    key_list = list(iod.keys())
-    current_index = key_list.index(key)
-
-    # Check if our move is valid and bail if not
-    if current_index + shift < 0 or current_index + shift >= len(iod):
-        return None
-
-    # Move
-    key_list.insert(current_index + shift, key_list.pop(current_index))
-
-    # Remake our dictionary according to our new list of ordered keys
-    ordered = IndexedOrderedDict()
-    for key in key_list:
-        ordered[key] = iod[key]
-
-    # Return reordered dict
-    return ordered
+    with open(file_path, "r") as source_file:
+        return json.load(source_file)
 
 
-def move_item_in_iod_by_index_to_position(iod: IndexedOrderedDict, source_index: int, target_index: int) -> IndexedOrderedDict:
-    # Cache our keys as a list
-    key_list = list(iod.keys())
-    key_list = move_item_in_list_by_index_to_position(key_list, source_index, target_index)
+def save_json(file_path, data_holder):
+    jsons = json.dumps(data_holder, default=lambda o: o.__dict__, indent=4)
 
-    # Remake our dictionary according to our new list of ordered keys
-    ordered = IndexedOrderedDict()
-    for key in key_list:
-        ordered[key] = iod[key]
+    # Ensure our folders exist
+    folders = os.path.dirname(os.path.abspath(file_path))
+    Path(folders).mkdir(parents=True, exist_ok=True)
 
-    # Return reordered dict
-    return ordered
-
-
-def move_item_in_list_by_index_to_position(l: list, source_index: int, target_index: int) -> list:
-    l.insert(target_index, l.pop(source_index))
-    return l
+    # Serialize
+    with open(file_path, 'w') as output_file:
+        output_file.write(jsons)
 
 
 def handle_old_save_file_loader(json_data) -> DataFile | None:
