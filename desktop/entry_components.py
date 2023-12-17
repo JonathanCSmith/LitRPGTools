@@ -11,7 +11,6 @@ from desktop.custom_generic_components import ShadedWidget, MemoryModalDialog
 from desktop.spelling_components import SpellTextEdit, SpellTextEditSingleLine
 
 if TYPE_CHECKING:
-    from data.data_manager import DataManager
     from desktop.guis import DesktopGUI
 
 

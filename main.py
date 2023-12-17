@@ -4,9 +4,6 @@ from typing import TypeVar, Generic, TYPE_CHECKING
 from data.data_manager import DataManager
 from gsheets import GSheetsHandler
 
-if TYPE_CHECKING:
-    from progress_bar import LitRPGToolsProgressUpdater
-
 """
 TODO: Move utils.py into relevant
 """

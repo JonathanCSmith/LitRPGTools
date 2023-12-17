@@ -1,6 +1,6 @@
 import uuid
 from collections import OrderedDict
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple
 
 from indexed import IndexedOrderedDict
 
