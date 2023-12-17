@@ -3,11 +3,11 @@ from typing import Dict, List, TYPE_CHECKING
 
 from indexed import IndexedOrderedDict
 
-import search_helper
 from data.models import Output, Entry, DataFile, Character, Category
 from data.dynamic import DynamicDataStore
 from utilities.dict import move_item_in_iod_by_index_to_position, move_item_in_list_by_index_to_position
 from utilities.io import save_json, load_json, handle_old_save_file_loader
+from utilities.search import tokenize_string, tokenize_entry, search_tokens, tokenize_category
 
 if TYPE_CHECKING:
     from main import LitRPGToolsRuntime
@@ -224,7 +224,7 @@ class DataManager:
         for category_id in original_character.categories:
 
             # Get the entries that match this character and the deleted category for deletion
-            root_entries = self.__character_category_root_entry_cache[character.unique_id][category_id]
+            root_entries = self.__character_category_root_entry_cache[character_id][category_id]
             for root_entry_id in root_entries:
                 historic_entries = self.__revisions[root_entry_id]
 
@@ -233,7 +233,7 @@ class DataManager:
                     self.delete_entry(historic_entry_id, rebuild_caches=False)
 
         # Delete and optionally rebuild caches
-        del self.__characters[character.unique_id]
+        del self.__characters[character_id]
         if rebuild_caches:
             self.__rebuild_caches()
 
@@ -773,26 +773,26 @@ class DataManager:
         results = []
 
         # Tokenise our search string
-        search_tokens = search_helper.tokenize_string(search_string)
-        if search_tokens is None or len(search_tokens) == 0:
+        searchable_tokens = tokenize_string(search_string)
+        if searchable_tokens is None or len(searchable_tokens) == 0:
             return results
 
         # Search in entries
         for entry in self.__entries.values():
-            entry_tokens = search_helper.tokenize_entry(entry)
+            entry_tokens = tokenize_entry(entry)
             if entry_tokens is None or len(entry_tokens) == 0:
                 continue
 
-            if search_helper.search_tokens(search_tokens, entry_tokens):
+            if search_tokens(searchable_tokens, entry_tokens):
                 results.append(entry)
 
         # Search in categories
         for category in self.__categories.values():
-            category_tokens = search_helper.tokenize_category(category)
-            if category_tokens is None or len(search_tokens) == 0:
+            category_tokens = tokenize_category(category)
+            if category_tokens is None or len(searchable_tokens) == 0:
                 continue
 
-            if search_helper.search_tokens(search_tokens, category_tokens):
+            if search_tokens(searchable_tokens, category_tokens):
                 results.append(category)
 
         return results
